@@ -1,11 +1,43 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
+    android:layout_width="250dp"
     android:layout_height="match_parent"
+	android:orientation="vertical"
     android:gravity="center">
 
-    <TextView
-        android:text="@string/hello_world"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content" />
-
+  	<ProgressBar 
+		android:id="@+id/progress"
+		android:layout_margin="16dp"
+		android:layout_width="wrap_content"
+		android:layout_height="wrap_content"
+		android:gravity="center"
+		/>
+	
+	<TextView 
+		android:id="@+id/text"
+		android:layout_width="match_parent"
+		android:layout_height="wrap_content"
+		android:textStyle="bold"
+		android:gravity="center"
+		android:textColor="#EF6C00"
+		android:padding="16dp"
+		android:textSize="16dp"
+		android:text="Loading..." />
+	
+	<Spinner android:id="@+id/spinner"
+		android:layout_width="match_parent"
+		android:layout_height="wrap_content"
+		android:paddingLeft="8dp"
+		android:visibility="gone"/>
+	
+	<Button
+		android:id="@+id/button"
+		android:layout_width="wrap_content"
+		android:layout_height="wrap_content"
+		android:text="Play"
+		style="?android:attr/borderlessButtonStyle"
+		android:paddingTop="8dp"
+		android:layout_gravity="right"
+		android:enabled="false"
+	/>
+	
 </LinearLayout>
