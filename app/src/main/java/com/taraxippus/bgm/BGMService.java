@@ -19,6 +19,8 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.URLDecoder;
 import java.util.Random;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.apache.http.HttpEntity;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.HttpClient;
@@ -41,14 +43,15 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 	
 	final Random random = new Random();
 	
-	String url;
-	String artist, title;
+	String url, nextUrl;
+	String artist, nextArtist, title, nextTitle;
 	
-	boolean loop;
+	boolean hasBuffer;
+	boolean repeat;
 	boolean shuffle;
 	
 	boolean playlist;
-	int playlistIndex;
+	int playlistIndex, nextPlaylistIndex;
 	String[] urls;
 	NextSongTask nextSongTask;
 	
@@ -67,20 +70,30 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 	{
 		if (intent != null && intent.hasExtra("url"))
 		{
+			if (nextSongTask != null)
+				nextSongTask.cancel(true);
+			
+			hasBuffer = false;
+				
 			releaseMediaSession();
 			
 			url = intent.getStringExtra("url");
 			artist = intent.getStringExtra("artist");
 			title = intent.getStringExtra("title");
-			loop = intent.getBooleanExtra("loop", true);
+			repeat = intent.getBooleanExtra("repeat", true);
 			shuffle = intent.getBooleanExtra("shuffle", false);
 			playlist = intent.getBooleanExtra("playlist", false);
 			urls = intent.getStringArrayExtra("urls");
 			
-			if (playlist && shuffle)
-				playlistIndex = random.nextInt(urls.length);
-			else
-				playlistIndex = 0;
+			playlistIndex = 0;
+			
+			if (playlist)
+			{
+				if (shuffle)
+					playlistIndex = random.nextInt(urls.length);
+					
+				bufferNextSong();
+			}
 		}
 			
 		if (player == null)
@@ -102,6 +115,9 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 			player.release();
 			player = null;
 			preparing = true;
+			
+
+			buildNotification(generateAction(R.drawable.load, "Load", ACTION_PLAY));
 		}
 	}
 
@@ -116,7 +132,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 			player.setOnCompletionListener(this);
 			player.setOnErrorListener(this);
 			player.setWakeMode(this, PowerManager.PARTIAL_WAKE_LOCK);
-			player.setLooping(!playlist && loop);
+			player.setLooping(!playlist && repeat);
 		}
 		catch (Exception e)
 		{
@@ -178,11 +194,26 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 					{
 						if (playlist)
 						{
+							releaseMediaSession();
+							
+							if (hasBuffer)
+							{
+								playlistIndex = nextPlaylistIndex;
+								url = nextUrl;
+								title = nextTitle;
+								artist = nextArtist;
+								initMediaSession();
+								
+								hasBuffer = false;
+								bufferNextSong();
+								return;
+							}
+							
 							if (shuffle)
 								playlistIndex = random.nextInt(urls.length);
 
 							else if (playlistIndex + 1 == urls.length)
-								if (loop)
+								if (repeat)
 									playlistIndex = 0;
 								else
 								{
@@ -193,12 +224,10 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 							else
 								playlistIndex++;
 
-							releaseMediaSession();
-							
 							if (nextSongTask != null)
 								nextSongTask.cancel(true);
-							
-							nextSongTask = new NextSongTask();
+
+							nextSongTask = new NextSongTask(false);
 							nextSongTask.execute(urls[playlistIndex]);
 						}
 						else
@@ -243,7 +272,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 							if (nextSongTask != null)
 								nextSongTask.cancel(true);
 
-							nextSongTask = new NextSongTask();
+							nextSongTask = new NextSongTask(false);
 							nextSongTask.execute(urls[playlistIndex]);
 						}
 					}
@@ -295,8 +324,29 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 				});
 		}
 			
+		buildNotification(generateAction(R.drawable.load, "Load", ACTION_PLAY));
 		player.prepareAsync();
 		preparing = true;
+	}
+	
+	public void bufferNextSong()
+	{
+		if (shuffle)
+			nextPlaylistIndex = random.nextInt(urls.length);
+
+		else if (playlistIndex + 1 == urls.length)
+			if (repeat)
+				nextPlaylistIndex = 0;
+			else
+				return;
+		else
+			nextPlaylistIndex = playlistIndex + 1;
+			
+		if (nextSongTask != null)
+			nextSongTask.cancel(true);
+
+		nextSongTask = new NextSongTask(true);
+		nextSongTask.execute(urls[nextPlaylistIndex]);
 	}
 	
 	private Notification.Action generateAction(int icon, String title, String intentAction) 
@@ -310,7 +360,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 	private void buildNotification(Notification.Action action)
 	{
 		Notification.MediaStyle style = new Notification.MediaStyle();
-
+		
 		Intent intent = new Intent(getApplicationContext(), BGMService.class);
 		intent.setAction(ACTION_STOP);
 		
@@ -468,6 +518,13 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 	
 	public class NextSongTask extends AsyncTask<String, Void, String[]>
 	{
+		final boolean buffer;
+		
+		public NextSongTask(boolean buffer)
+		{
+			this.buffer = buffer;
+		}
+		
 		@Override
 		protected String[] doInBackground(String[] p1)
 		{
@@ -494,16 +551,21 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 
 				String page = sb.toString();
 				int index0, index1, index2;
+				Matcher m;
 				
 				index1 = page.indexOf("\"title\":\"");
-				index2 = index1 == -1 ? -1 : page.indexOf("\",\"", index1 + 9);
+				m = Pattern.compile("(?<!\\\\)\"").matcher(page);
+				m.find(index1 + 9);
+				index2 = index1 == -1 ? -1 : m.start();
 
 				if (index2 != -1)
-					result[0] = page.substring(index1 + 9, index2).replace("\\\"", "\"").replace("\\/", "/");
+					result[0] = Utils.unescapeJava(page.substring(index1 + 9, index2));
 
 				index0 = page.indexOf("\"author\"");
 				index1 = index0 == -1 ? -1 : page.indexOf("\"", index0 + 8);
-				index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 1);
+				m = Pattern.compile("(?<!\\\\)\"").matcher(page);
+				m.find(index1 + 1);
+				index2 = index1 == -1 ? -1 : m.start();
 
 				if (index2 != -1)
 					result[1] = page.substring(index1 + 1, index2);
@@ -537,12 +599,22 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 		{
 			if (result != null)
 			{
-				title = result[0];
-				artist = result[1];
-				url = result[2];
-		
-				initMediaSession();
-				System.out.println("Playing next song: " + title);
+				if (buffer)
+				{
+					nextTitle = result[0];
+					nextArtist = result[1];
+					nextUrl = result[2];
+					
+					hasBuffer = true;
+				}
+				else
+				{
+					title = result[0];
+					artist = result[1];
+					url = result[2];
+					
+					initMediaSession();
+				}
 			}
 			else
 			{
