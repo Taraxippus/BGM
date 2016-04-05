@@ -36,6 +36,7 @@ import android.graphics.drawable.BitmapDrawable;
 import android.widget.ScrollView;
 import android.util.TypedValue;
 import android.text.TextUtils;
+import java.io.IOException;
 
 public class MainActivity extends Activity 
 {
@@ -57,6 +58,7 @@ public class MainActivity extends Activity
 	String playlistTitle;
 	ArrayList<String> urls = new ArrayList<String>();
 	ArrayList<String> titles = new ArrayList<String>();
+	ArrayList<Bitmap> bitmaps = new ArrayList<Bitmap>();
 	
     @Override
     protected void onCreate(Bundle savedInstanceState)
@@ -349,55 +351,19 @@ public class MainActivity extends Activity
 				if (index2 != -1)
 					description = page.substring(index1 + 25, index2);
 				
-				InputStream in = null;
-				
-				try
-				{
-					in = new URL("https://i.ytimg.com/vi/" + id + "/maxresdefault.jpg").openStream();
-				}
-				catch (Exception e1)
-				{
-					try
-					{
-						in = new URL("https://i.ytimg.com/vi/" + id + "/mqdefault.jpg").openStream();
-					}
-					catch (Exception e2)
-					{
-						try
-						{
-							in = new URL("https://i.ytimg.com/vi/" + id + "/hqdefault.jpg").openStream();
-						}
-						catch (Exception e3)
-						{
-							try
-							{
-								in = new URL("https://i.ytimg.com/vi/" + id + "/default.jpg").openStream();
-							}
-							catch (Exception e4)
-							{
-								in = null;
-								bitmap_video = null;
-							}
-						}
-					}
-				}
-				
-				if (in != null)
-				{
-					bitmap_video = BitmapFactory.decodeStream(in);
-					
-					in.close();
-				}
+				bitmap_video = getBitmap("id");
 				
 				index0 = page.indexOf("video-thumb  yt-thumb yt-thumb-48 g-hovercard");
 				index1 = index0 == -1 ? -1 : page.indexOf("data-thumb=\"", index0);
 				index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 12);
 				
+				InputStream in;
+				
 				if (index2 != -1)
 				{
 					try
 					{
-						in = new URL(page.substring(index1 + 12, index2).replaceFirst("^//", "")).openStream();
+						in = new URL(page.substring(index1 + 12, index2).replaceFirst("^//", "http://")).openStream();
 					}
 					catch (Exception e1)
 					{
@@ -497,5 +463,51 @@ public class MainActivity extends Activity
 					text_description.setText(Html.fromHtml(description));
 			}
 		}
+	}
+	
+	public Bitmap getBitmap(String id) throws IOException
+	{
+		InputStream in = null;
+		Bitmap bitmap = null;
+		
+		try
+		{
+			in = new URL("https://i.ytimg.com/vi/" + id + "/maxresdefault.jpg").openStream();
+		}
+		catch (Exception e1)
+		{
+			try
+			{
+				in = new URL("https://i.ytimg.com/vi/" + id + "/mqdefault.jpg").openStream();
+			}
+			catch (Exception e2)
+			{
+				try
+				{
+					in = new URL("https://i.ytimg.com/vi/" + id + "/hqdefault.jpg").openStream();
+				}
+				catch (Exception e3)
+				{
+					try
+					{
+						in = new URL("https://i.ytimg.com/vi/" + id + "/default.jpg").openStream();
+					}
+					catch (Exception e4)
+					{
+						in = null;
+						bitmap = null;
+					}
+				}
+			}
+		}
+
+		if (in != null)
+		{
+			bitmap = BitmapFactory.decodeStream(in);
+
+			in.close();
+		}
+		
+		return bitmap;
 	}
 }
