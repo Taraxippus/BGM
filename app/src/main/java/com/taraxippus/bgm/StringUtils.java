@@ -4,7 +4,7 @@ import java.io.IOException;
 import java.io.StringWriter;
 import java.io.Writer;
 
-public class Utils
+public class StringUtils
 {
 	public static String unescapeJava(String str) 
 	{
@@ -112,4 +112,95 @@ public class Utils
 			out.write('\\');
 		}
 	}
+	
+	public static int fromUrlTime(String text)
+	{
+		try
+		{
+			int time = 0;
+
+			int index = Math.max(text.indexOf('h'), text.indexOf('H'));
+			if (index != -1)
+			{
+				time += Integer.parseInt(text.substring(0, index)) * 60 * 60;
+				text = text.substring(0, index + 1);
+			}
+			
+			index = Math.max(text.indexOf('m'), text.indexOf('M'));
+			if (index != -1)
+			{
+				time += Integer.parseInt(text.substring(0, index)) * 60;
+				text = text.substring(index + 1);
+			}
+			
+			index = Math.max(text.indexOf('s'), text.indexOf('S'));
+			if (index != -1)
+			{
+				time += Integer.parseInt(text.substring(0, index));
+				text = text.substring(index + 1);
+			}
+			
+			return time;
+		}
+		catch (Exception e)
+		{
+			e.printStackTrace();
+			return 0;
+		}
+	}
+	
+	public static String toUrlTime(int time)
+	{
+		int hours = time / 60 / 60;
+		int minutes = (time % (60 * 60)) / 60;
+		int seconds = time % 60;
+
+		return (hours > 0 ? hours + "h" : "") + (minutes > 0 ?  minutes + "m" : "") + (seconds > 0 ? seconds + "s" : "");
+	}
+	
+	public static int fromTime(String text)
+	{
+		try
+		{
+			int time = 0;
+
+			int index = text.lastIndexOf(':');
+
+			if (index == -1)
+			{
+				time += Integer.parseInt(text);
+			}
+			else
+			{
+				time += Integer.parseInt(text.substring(index + 1));
+
+				int index1 = text.lastIndexOf(':', index - 1);
+				if (index1 != -1)
+				{
+					time += Integer.parseInt(text.substring(index1 + 1, index)) * 60;
+					time += Integer.parseInt(text.substring(0, index1)) * 60;
+				}
+				else
+					time += Integer.parseInt(text.substring(0, index)) * 60;
+
+			}
+
+			return time;
+		}
+		catch (Exception e)
+		{
+			e.printStackTrace();
+			return 0;
+		}
+	}
+
+	public static String toTime(int time)
+	{
+		int hours = time / 60 / 60;
+		int minutes = (time % (60 * 60)) / 60;
+		int seconds = time % 60;
+
+		return (hours > 0 ? hours + ":" + String.format("%02d", minutes) + ":" : minutes + ":") + String.format("%02d", seconds);
+	}
+	
 }

@@ -15,17 +15,17 @@ import android.net.wifi.WifiManager;
 import android.os.AsyncTask;
 import android.os.IBinder;
 import android.os.PowerManager;
+import android.text.Html;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.URLDecoder;
 import java.util.Random;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import org.apache.http.HttpEntity;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.impl.client.DefaultHttpClient;
+import android.preference.PreferenceManager;
 
 public class BGMService extends Service implements MediaPlayer.OnPreparedListener, MediaPlayer.OnErrorListener, MediaPlayer.OnCompletionListener, AudioManager.OnAudioFocusChangeListener
 {
@@ -40,19 +40,22 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 	public static final String ACTION_SKIP_PREVIOUS = "com.taraxippus.bgm.action.SKIP_PREVIOUS";
 	public static final String ACTION_FAST_FORWARD = "com.taraxippus.bgm.action.FAST_FORWARD";
 	public static final String ACTION_REWIND = "com.taraxippus.bgm.action.REWIND";
+	public static final String ACTION_OPEN = "com.taraxippus.bgm.action.OPEN";
+	public static final String ACTION_SEEK = "com.taraxippus.bgm.action.SEEK";
 	
 	final Random random = new Random();
 	
 	String url, nextUrl;
-	String artist, nextArtist, title, nextTitle;
 	
 	boolean hasBuffer;
 	boolean repeat;
 	boolean shuffle;
 	
-	boolean playlist;
 	int playlistIndex, nextPlaylistIndex;
+	int time = -1;
 	String[] urls;
+	String[] titles;
+	String[] artists;
 	NextSongTask nextSongTask;
 	
 	boolean wasPlaying;
@@ -62,37 +65,61 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 	MediaController controller;
 	
 	WifiManager.WifiLock wifiLock;
-	
 	private static boolean preparing = true;
 	
 	@Override
 	public int onStartCommand(Intent intent, int flags, int startId)
 	{
+		if (wifiLock == null)
+			wifiLock = ((WifiManager) getSystemService(Context.WIFI_SERVICE)).createWifiLock(WifiManager.WIFI_MODE_FULL, WIFI_LOCK);
+		
 		if (intent != null && intent.hasExtra("url"))
 		{
-			if (nextSongTask != null)
-				nextSongTask.cancel(true);
-			
-			hasBuffer = false;
-				
-			releaseMediaSession();
-			
-			url = intent.getStringExtra("url");
-			artist = intent.getStringExtra("artist");
-			title = intent.getStringExtra("title");
-			repeat = intent.getBooleanExtra("repeat", true);
-			shuffle = intent.getBooleanExtra("shuffle", false);
-			playlist = intent.getBooleanExtra("playlist", false);
-			urls = intent.getStringArrayExtra("urls");
-			
-			playlistIndex = 0;
-			
-			if (playlist)
+			if (intent.getBooleanExtra("add", false) && urls != null)
 			{
-				if (shuffle)
-					playlistIndex = random.nextInt(urls.length);
-					
-				bufferNextSong();
+				String[] urls1 = new String[urls.length + intent.getStringArrayExtra("urls").length];
+				String[] titles1 = new String[titles.length + intent.getStringArrayExtra("titles").length];
+				String[] artists1 = new String[artists.length + intent.getStringArrayExtra("artists").length];
+				
+				System.arraycopy(urls, 0, urls1, 0, urls.length);
+				System.arraycopy(intent.getStringArrayExtra("urls"), 0, urls1, urls.length, intent.getStringArrayExtra("urls").length);
+				System.arraycopy(titles, 0, titles1, 0, titles.length);
+				System.arraycopy(intent.getStringArrayExtra("titles"), 0, titles1, titles.length, intent.getStringArrayExtra("titles").length);
+				System.arraycopy(artists, 0, artists1, 0, artists.length);
+				System.arraycopy(intent.getStringArrayExtra("artists"), 0, artists1, artists.length, intent.getStringArrayExtra("artists").length);
+				
+				urls = urls1;
+				titles = titles1;
+				artists = artists1;
+				
+				buildNotification(generateAction(R.drawable.pause, "Pause", ACTION_PAUSE));
+			}
+			else
+			{
+				if (nextSongTask != null)
+					nextSongTask.cancel(true);
+
+				hasBuffer = false;
+
+				releaseMediaSession();
+
+				url = intent.getStringExtra("url");
+				repeat = intent.getBooleanExtra("repeat", true);
+				shuffle = intent.getBooleanExtra("shuffle", false);
+				urls = intent.getStringArrayExtra("urls");
+				titles = intent.getStringArrayExtra("titles");
+				artists = intent.getStringArrayExtra("artists");
+				time = intent.getIntExtra("time", -1) * 1000;
+				
+				playlistIndex = 0;
+
+				if (urls.length > 1)
+				{
+					if (shuffle)
+						playlistIndex = random.nextInt(urls.length);
+
+					bufferNextSong();
+				}
 			}
 		}
 			
@@ -112,17 +139,18 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 			if (!preparing && player.isPlaying())
 				player.stop();
 
+			player.reset();
 			player.release();
 			player = null;
 			preparing = true;
-			
-
-			buildNotification(generateAction(R.drawable.load, "Load", ACTION_PLAY));
 		}
 	}
 
 	public void initMediaSession()
 	{
+		if (player != null)
+			releaseMediaSession();
+		
 		try
 		{
 			player = new MediaPlayer();
@@ -132,7 +160,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 			player.setOnCompletionListener(this);
 			player.setOnErrorListener(this);
 			player.setWakeMode(this, PowerManager.PARTIAL_WAKE_LOCK);
-			player.setLooping(!playlist && repeat);
+			player.setLooping(urls.length == 0 && repeat);
 		}
 		catch (Exception e)
 		{
@@ -142,11 +170,9 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 			
 			return;
 		}
-		
-		if (wifiLock == null)
+	
+		if (session == null)
 		{
-			wifiLock = ((WifiManager) getSystemService(Context.WIFI_SERVICE)).createWifiLock(WifiManager.WIFI_MODE_FULL, WIFI_LOCK);
-
 			session = new MediaSession(this, SESSION);
 			controller = new MediaController(this, session.getSessionToken());
 
@@ -168,8 +194,10 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 							if (result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
 							{
 								player.start();
-								wifiLock.acquire();
 								
+								if (!wifiLock.isHeld())
+									wifiLock.acquire();
+									
 								buildNotification(generateAction(R.drawable.pause, "Pause", ACTION_PAUSE));
 							}
 						}
@@ -183,8 +211,10 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 						if (!preparing && player != null && player.isPlaying())
 						{
 							player.pause();
-							wifiLock.release();
 							
+							if (wifiLock.isHeld() && (nextSongTask == null || nextSongTask.getStatus() != AsyncTask.Status.RUNNING))
+								wifiLock.release();
+								
 							buildNotification(generateAction(R.drawable.play, "Play", ACTION_PLAY));
 						}
 					}
@@ -192,7 +222,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 					@Override
 					public void onSkipToNext() 
 					{
-						if (playlist)
+						if (urls.length > 1)
 						{
 							releaseMediaSession();
 							
@@ -200,8 +230,6 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 							{
 								playlistIndex = nextPlaylistIndex;
 								url = nextUrl;
-								title = nextTitle;
-								artist = nextArtist;
 								initMediaSession();
 								
 								hasBuffer = false;
@@ -217,8 +245,12 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 									playlistIndex = 0;
 								else
 								{
-									player.seekTo(0);
-									controller.getTransportControls().pause();
+									if (player != null && !preparing && player.isPlaying())
+									{
+										player.seekTo(0);
+										controller.getTransportControls().pause();
+									}
+									
 									return;
 								}
 							else
@@ -230,17 +262,17 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 							nextSongTask = new NextSongTask(false);
 							nextSongTask.execute(urls[playlistIndex]);
 						}
-						else
+						else if (!preparing && player.isPlaying())
 						{
-							if (shuffle)
-							{
-								;
-							}
-							else
-							{
-								player.seekTo(0);
-								controller.getTransportControls().pause();
-							}
+							player.seekTo(0);
+							controller.getTransportControls().pause();
+						}
+						else if (!preparing)
+						{
+							if (wifiLock.isHeld())
+								wifiLock.release();
+							
+							buildNotification(generateAction(R.drawable.play, "Play", ACTION_PLAY));
 						}
 					}
 
@@ -249,10 +281,10 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 					{
 						super.onSkipToPrevious();
 						
-						if (!preparing && player != null && player.isPlaying())
+						if (!preparing && player != null && player.isPlaying() && player.getCurrentPosition() > 1000)
 							player.seekTo(0);
 							
-						else if (playlist)
+						else if (urls.length > 1)
 						{
 							if (shuffle)
 							{
@@ -300,14 +332,11 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 					{
 						super.onStop();
 
-						if (player != null)
+						if (player != null && !preparing && player.isPlaying())
 							player.stop();
 
-						stopForeground(false);
-						NotificationManager notificationManager = (NotificationManager) getApplicationContext().getSystemService(Context.NOTIFICATION_SERVICE);
-						notificationManager.cancel(NOTIFICATION_ID);
-						Intent intent = new Intent(getApplicationContext(), BGMService.class);
-						stopService(intent);
+						stopForeground(true);
+						stopSelf();
 					}
 
 					@Override
@@ -353,7 +382,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 	{
 		Intent intent = new Intent(getApplicationContext(), BGMService.class);
 		intent.setAction(intentAction);
-		PendingIntent pendingIntent = PendingIntent.getService(getApplicationContext(), NOTIFICATION_ID, intent, 0);
+		PendingIntent pendingIntent = PendingIntent.getService(getApplicationContext(), 0, intent, 0);
 		return new Notification.Action.Builder(icon, title, pendingIntent).build();
 	}
 	
@@ -362,19 +391,17 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 		Notification.MediaStyle style = new Notification.MediaStyle();
 		
 		Intent intent = new Intent(getApplicationContext(), BGMService.class);
-		intent.setAction(ACTION_STOP);
+		intent.setAction(ACTION_OPEN);
 		
-		PendingIntent pendingIntent = PendingIntent.getService(getApplicationContext(), NOTIFICATION_ID, intent, 0);
 		Notification.Builder builder = new Notification.Builder(this)
             .setSmallIcon(R.drawable.launcher)
-            .setContentTitle(title)
-            .setContentText(artist)
-            .setDeleteIntent(pendingIntent)
+            .setContentTitle(Html.fromHtml(titles[playlistIndex]))
+            .setContentText(Html.fromHtml(artists[playlistIndex]))
+			.setContentIntent(PendingIntent.getService(getApplicationContext(), 0, intent, 0))
             .setStyle(style)
-			//.setColor(0xFFE65100)
 			.setShowWhen(false);
-			
-		if (playlist || shuffle)
+
+		if (urls.length > 1)
 		{
 			builder.addAction(generateAction(R.drawable.skip_previous, "Skip to previous", ACTION_SKIP_PREVIOUS));
 			builder.addAction(action);
@@ -389,10 +416,12 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 			builder.addAction(generateAction(R.drawable.stop, "Stop", ACTION_STOP));
 		}
 		
+		style.setShowActionsInCompactView(1);
+		
 		Notification notification = builder.build();
 		
-		NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-		notificationManager.notify(NOTIFICATION_ID, notification);
+		((NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE))
+			.notify(NOTIFICATION_ID, notification);
 		startForeground(NOTIFICATION_ID, notification);
 	}
 			
@@ -403,7 +432,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 
 		String action = intent.getAction();
 
-		if( action.equalsIgnoreCase(ACTION_PLAY))
+		if (action.equalsIgnoreCase(ACTION_PLAY))
 			controller.getTransportControls().play();
 			
 		else if (action.equalsIgnoreCase(ACTION_PAUSE))
@@ -423,6 +452,15 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 
 		else if (action.equalsIgnoreCase(ACTION_SKIP_PREVIOUS))
 			controller.getTransportControls().skipToPrevious();
+			
+		else if (action.equalsIgnoreCase(ACTION_OPEN))
+		{
+			Intent intent1 = new Intent(this, MainActivity.class);
+			intent1.setAction(Intent.ACTION_SEND);
+			intent1.putExtra(Intent.EXTRA_TEXT, urls[playlistIndex] + (player != null ? "&t=" + StringUtils.toUrlTime(player.getCurrentPosition() / 1000) : ""));
+			intent1.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+			startActivity(intent1);
+		}
 	}
 	
 	@Override
@@ -434,11 +472,17 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 	@Override
 	public void onDestroy()
 	{
-		if (player != null)
-			player.release();
-			
+		releaseMediaSession();
+		
 		if (session != null)
 			session.release();
+			
+		if (nextSongTask != null)
+			nextSongTask.cancel(true);
+			
+		if (wifiLock.isHeld())
+			wifiLock.release();
+		
 			
 		super.onDestroy();
 	}
@@ -447,10 +491,22 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 	@Override
 	public boolean onError(MediaPlayer p1, int p2, int p3)
 	{
-		System.err.println("Media player error: " + p2 + " " + p3);
-		player.reset();
-		controller.getTransportControls().pause();
-		return false;
+		System.err.println("Media player error: " + p2 + " " + p3 + "\nURL=" + url);
+		buildNotification(generateAction(R.drawable.alert, "Error", ACTION_PLAY));
+		
+		if (wifiLock.isHeld())
+			wifiLock.release();
+		releaseMediaSession();
+		
+		Notification.Builder builder = new Notification.Builder(BGMService.this)
+			.setSmallIcon(R.drawable.launcher)
+			.setContentText(titles[playlistIndex])
+			.setContentTitle("An error occured");
+
+		((NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE))
+			.notify(NOTIFICATION_ID + 1, builder.build());
+		
+		return true;
 	}
 
 	@Override
@@ -465,11 +521,21 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 		preparing = false;
 		
 		controller.getTransportControls().play();
+		if (time > 0)
+		{
+			if (urls.length == 1)
+				player.seekTo(time);
+				
+			time = -1;
+		}
 	}
 
 	@Override
 	public void onAudioFocusChange(int focusChange)
 	{
+		if (!PreferenceManager.getDefaultSharedPreferences(this).getBoolean("audioFocus", true))
+			return;
+		
 		switch (focusChange)
 		{
 			case AudioManager.AUDIOFOCUS_GAIN:
@@ -483,7 +549,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 				break;
 
 			case AudioManager.AUDIOFOCUS_LOSS:
-				if (!preparing)
+				if (!preparing && player != null)
 				{
 					wasPlaying = player.isPlaying();
 					
@@ -493,7 +559,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 				break;
 
 			case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
-				if (!preparing)
+				if (!preparing && player != null)
 				{
 					wasPlaying = player.isPlaying();
 					
@@ -504,7 +570,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 				break;
 
 			case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
-				if (!preparing)
+				if (!preparing && player != null)
 				{
 					if (player.isPlaying())
 						player.setVolume(0.1f, 0.1f);
@@ -516,7 +582,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 		}
 	}
 	
-	public class NextSongTask extends AsyncTask<String, Void, String[]>
+	public class NextSongTask extends AsyncTask<String, Void, String>
 	{
 		final boolean buffer;
 		
@@ -526,17 +592,21 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 		}
 		
 		@Override
-		protected String[] doInBackground(String[] p1)
+		protected String doInBackground(String[] p1)
 		{
+			if (!wifiLock.isHeld())
+				wifiLock.acquire();
+				
 			try
 			{
-				String[] result = new String[3];
-				
 				HttpClient httpclient = new DefaultHttpClient(); 
 				HttpGet httpget = new HttpGet(p1[0]);
 				HttpResponse response = httpclient.execute(httpget); 
 				HttpEntity entity = response.getEntity();
 
+				if (isCancelled())
+					return null;
+					
 				BufferedReader reader = new BufferedReader(new InputStreamReader(entity.getContent()));
 
 				StringBuilder sb = new StringBuilder();
@@ -544,6 +614,9 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 				String line;
 				while ((line = reader.readLine()) != null)
 				{
+					if (isCancelled())
+						return null;
+					
 					sb.append(line);
 				}
 
@@ -551,40 +624,19 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 
 				String page = sb.toString();
 				int index0, index1, index2;
-				Matcher m;
 				
-				index1 = page.indexOf("\"title\":\"");
-				m = Pattern.compile("(?<!\\\\)\"").matcher(page);
-				m.find(index1 + 9);
-				index2 = index1 == -1 ? -1 : m.start();
-
-				if (index2 != -1)
-					result[0] = Utils.unescapeJava(page.substring(index1 + 9, index2));
-
-				index0 = page.indexOf("\"author\"");
-				index1 = index0 == -1 ? -1 : page.indexOf("\"", index0 + 8);
-				m = Pattern.compile("(?<!\\\\)\"").matcher(page);
-				m.find(index1 + 1);
-				index2 = index1 == -1 ? -1 : m.start();
-
-				if (index2 != -1)
-					result[1] = page.substring(index1 + 1, index2);
-
-				index1 = page.indexOf("quality=");
-				index2 = index1 == -1 ? -1 : page.indexOf(",", index1);
-				
-				String quality = page.substring(index1 + 8, index2);
-				
-				index0 = page.indexOf("quality=" + quality);
+				index0 = page.indexOf("quality=");
 				index1 = index0 == -1 ? -1 : page.indexOf("url=", index0);
-				index2 = index1 == -1 ? -1 : page.indexOf("\\u0026", index1);
-
+				index2 = index1 == -1 ? -1 : page.indexOf(",", index1);
+				index0 = index1 == -1 ? -1 : page.indexOf("\\u0026", index1);
+				index2 = index2 == -1 ? index0 : index0 == -1 ? index2 : Math.min(index0, index2);
+				
 				if (index2 != -1)
 				{
-					result[2] = URLDecoder.decode(page.substring(index1 + 4, index2)).toString();
+					return URLDecoder.decode(page.substring(index1 + 4, index2)).toString();
 				}
 				
-				return result;
+				return null;
 			}
 			catch (Exception e)
 			{
@@ -595,23 +647,26 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 		}
 
 		@Override
-		protected void onPostExecute(String[] result)
+		protected void onPostExecute(String result)
 		{
+			if (isCancelled())
+				return;
+				
 			if (result != null)
 			{
 				if (buffer)
 				{
-					nextTitle = result[0];
-					nextArtist = result[1];
-					nextUrl = result[2];
+					nextUrl = result;
 					
 					hasBuffer = true;
+					
+					if (wifiLock.isHeld() && player != null && !preparing && !player.isPlaying())
+						wifiLock.release();
+						
 				}
 				else
 				{
-					title = result[0];
-					artist = result[1];
-					url = result[2];
+					url = result;
 					
 					initMediaSession();
 				}

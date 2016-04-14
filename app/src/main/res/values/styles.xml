@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="AppTheme" parent="@android:style/Theme.Material.Dialog.NoActionBar">
+    <style name="MainTheme" parent="@android:style/Theme.Material.Dialog.NoActionBar">
+		<item name="android:colorPrimary">#EF6C00</item>
+		<item name="android:colorPrimaryDark">#E65100</item>
+		<item name="android:colorAccent">#FF9800</item>
+	</style>
+	<style name="PreferenceTheme" parent="@android:style/Theme.Material.Dialog">
 		<item name="android:colorPrimary">#EF6C00</item>
 		<item name="android:colorPrimaryDark">#E65100</item>
 		<item name="android:colorAccent">#FF9800</item>

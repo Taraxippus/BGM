@@ -1,27 +1,49 @@
 package com.taraxippus.bgm;
 
 import android.app.Activity;
+import android.app.Notification;
+import android.app.NotificationManager;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.drawable.BitmapDrawable;
 import android.net.ConnectivityManager;
+import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
+import android.support.v7.widget.LinearLayoutManager;
+import android.support.v7.widget.RecyclerView;
+import android.support.v7.widget.helper.ItemTouchHelper;
 import android.text.Html;
+import android.text.SpannableStringBuilder;
 import android.text.method.LinkMovementMethod;
+import android.text.style.ClickableSpan;
+import android.text.style.URLSpan;
+import android.util.TypedValue;
+import android.view.LayoutInflater;
+import android.view.MenuInflater;
+import android.view.MenuItem;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.ImageButton;
 import android.widget.ImageView;
+import android.widget.PopupMenu;
 import android.widget.ProgressBar;
+import android.widget.SeekBar;
 import android.widget.TextView;
+import android.widget.ViewSwitcher;
 import com.taraxippus.bgm.R;
 import java.io.BufferedReader;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.URL;
 import java.net.URLDecoder;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.apache.http.HttpEntity;
@@ -29,36 +51,37 @@ import org.apache.http.HttpResponse;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.impl.client.DefaultHttpClient;
-import java.io.InputStream;
-import android.app.ActivityGroup;
-import android.widget.LinearLayout;
-import android.graphics.drawable.BitmapDrawable;
-import android.widget.ScrollView;
-import android.util.TypedValue;
-import android.text.TextUtils;
-import java.io.IOException;
 
 public class MainActivity extends Activity 
 {
 	ProgressBar progress;
-	ImageView image_video, image_artist, image_menu;
-	TextView text_title, text_description;
+	SeekBar seek;
+	ViewSwitcher switcher_video;
+	ImageView image_video, image_video2, image_artist, image_menu;
+	TextView text_title, text_artist, text_description;
 	Button button_cancel;
-	ImageButton button_shuffle, button_play, button_repeat;
-	LinearLayout layout_title;
+	ImageButton button_shuffle, button_play, button_repeat, button_overflow;
+	View layout_title, layout_buttons, layout_image;
+	RecyclerView recycler;
 	
 	String page;
 	String id;
-	String streamUrl;
+	String url, streamUrl;
 	String title, artist, description;
 	Bitmap bitmap_video;
 	Bitmap bitmap_artist;
+	int duration;
+	int time;
+	
+	int playlistIndex = 0;
 	
 	boolean playlist;
 	String playlistTitle;
-	ArrayList<String> urls = new ArrayList<String>();
-	ArrayList<String> titles = new ArrayList<String>();
-	ArrayList<Bitmap> bitmaps = new ArrayList<Bitmap>();
+	List<String> ids = new ArrayList<String>();
+	List<String> urls = new ArrayList<String>();
+	List<String> titles = new ArrayList<String>();
+	List<String> artists = new ArrayList<String>();
+	HashMap<String, Bitmap> bitmaps = new HashMap<String, Bitmap>();
 	
     @Override
     protected void onCreate(Bundle savedInstanceState)
@@ -67,32 +90,42 @@ public class MainActivity extends Activity
        	setContentView(R.layout.main);
 		
 		progress = (ProgressBar) findViewById(R.id.progress);
+		seek = (SeekBar) findViewById(R.id.seek);
 		image_video = (ImageView) findViewById(R.id.image_video);
+		image_video2 = (ImageView) findViewById(R.id.image_video2);
 		image_artist = (ImageView) findViewById(R.id.image_artist);
-		image_menu = (ImageView) findViewById(R.id.image_menu);
-		text_title = (TextView) findViewById(R.id.text_title);
-		text_description = (TextView) findViewById(R.id.text_description);
+		
 		button_cancel = (Button) findViewById(R.id.button_cancel);
 		button_shuffle = (ImageButton) findViewById(R.id.button_shuffle);
 		button_repeat = (ImageButton) findViewById(R.id.button_repeat);
 		button_play = (ImageButton) findViewById(R.id.button_play);
-		layout_title = (LinearLayout) findViewById(R.id.layout_title);
+		button_overflow = (ImageButton) findViewById(R.id.button_overflow);
 		
-		text_description.setMovementMethod(LinkMovementMethod.getInstance());
+		switcher_video = (ViewSwitcher) findViewById(R.id.switcher_video);
 		
-		final LinearLayout layout_buttons = (LinearLayout)  findViewById(R.id.layout_buttons);
-		final ScrollView scroll = (ScrollView) findViewById(R.id.scroll);
-		scroll .setOnScrollChangeListener(new ScrollView.OnScrollChangeListener()
+		layout_image = findViewById(R.id.layout_image);
+		layout_buttons = findViewById(R.id.layout_buttons);
+		
+		recycler = (RecyclerView) findViewById(R.id.recycler);
+		recycler.setOnScrollChangeListener(new RecyclerView.OnScrollChangeListener()
 		{
 				@Override
 				public void onScrollChange(View p1, int p2, int p3, int p4, int p5)
 				{
-					if (scroll.canScrollVertically(1))
+					if (recycler.canScrollVertically(1))
 						layout_buttons.setElevation(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 8, getResources().getDisplayMetrics()));
 					else
 						layout_buttons.setElevation(0);
+						
+					if (recycler.canScrollVertically(-1))
+						layout_image.setElevation(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 8, getResources().getDisplayMetrics()));
+					else
+						layout_image.setElevation(0);
 				}
 		});
+		recycler.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.VERTICAL, false));
+		recycler.setAdapter(new DescriptionAdapter());
+		new ItemTouchHelper(new PlaylistTouchHelperCallback()).attachToRecyclerView(recycler);
 		
 		button_cancel.setOnClickListener(new View.OnClickListener()
 			{
@@ -107,9 +140,12 @@ public class MainActivity extends Activity
 		{
 			progress.setVisibility(View.GONE);
 			
-			layout_title.setVisibility(View.VISIBLE);
-			image_menu.setVisibility(View.GONE);
-			text_title.setText("No connection");
+			if (layout_title != null)
+			{
+				layout_title.setVisibility(View.VISIBLE);
+				image_menu.setVisibility(View.GONE);
+				text_title.setText("No internet connection");
+			}
 			
 			button_cancel.setVisibility(View.VISIBLE);
 		}
@@ -120,18 +156,7 @@ public class MainActivity extends Activity
 					@Override
 					public void onClick(View p1)
 					{
-						Intent intent = new Intent(MainActivity.this, BGMService.class);
-						intent.setAction(BGMService.ACTION_PLAY);
-						intent.putExtra("url", streamUrl);
-						intent.putExtra("artist", artist);
-						intent.putExtra("title", title);
-						intent.putExtra("repeat", false);
-						intent.putExtra("shuffle", false);
-						intent.putExtra("playlist", playlist);
-						intent.putExtra("urls", urls.toArray(new String[urls.size()]));
-						startService(intent);
-
-						finish();
+						startService(false, false, false);
 					}
 				});
 			button_repeat.setOnClickListener(new View.OnClickListener()
@@ -139,18 +164,7 @@ public class MainActivity extends Activity
 					@Override
 					public void onClick(View p1)
 					{
-						Intent intent = new Intent(MainActivity.this, BGMService.class);
-						intent.setAction(BGMService.ACTION_PLAY);
-						intent.putExtra("url", streamUrl);
-						intent.putExtra("artist", artist);
-						intent.putExtra("title", title);
-						intent.putExtra("repeat", true);
-						intent.putExtra("shuffle", false);
-						intent.putExtra("playlist", playlist);
-						intent.putExtra("urls", urls.toArray(new String[urls.size()]));
-						startService(intent);
-
-						finish();
+						startService(false, true, false);
 					}
 				});
 			button_shuffle.setOnClickListener(new View.OnClickListener()
@@ -160,58 +174,69 @@ public class MainActivity extends Activity
 					{
 						if (playlist)
 						{
-							Intent intent = new Intent(MainActivity.this, BGMService.class);
-							intent.setAction(BGMService.ACTION_PLAY);
-							intent.putExtra("url", streamUrl);
-							intent.putExtra("artist", artist);
-							intent.putExtra("title", title);
-							intent.putExtra("repeat", false);
-							intent.putExtra("shuffle", true);
-							intent.putExtra("playlist", playlist);
-							intent.putExtra("urls", urls.toArray(new String[urls.size()]));
-							startService(intent);
-
-							finish();
+							startService(true, false, false);
 						}
 						else
 						{
 							progress.setVisibility(View.VISIBLE);
+							seek.setVisibility(View.GONE);
 							button_cancel.setVisibility(View.GONE);
 							button_repeat.setVisibility(View.GONE);
 							button_shuffle.setVisibility(View.GONE);
 							button_play.setVisibility(View.GONE);
+							button_overflow.setVisibility(View.GONE);
 							text_description.setVisibility(View.GONE);
 							image_menu.setImageResource(R.drawable.menu_down);
+							image_artist.setVisibility(View.GONE);
 							layout_buttons.setElevation(0);
+							layout_image.setElevation(0);
 							
-							new ParsePageTask().execute("Mix - " + title + ": " + "http://www.youtube.com/watch?v=" + id + "&list=RD" + id);
+							text_title.setText(Html.fromHtml("Mix - " + title));
+							text_artist.setText("Playlist");
+							
+							url = "http://www.youtube.com/watch?v=" + id + "&list=RD" + id;
+							new ParsePageTask().execute("Mix - " + title + ": " + url);
 						}
 					}
 				});
-			
-			layout_title.setOnClickListener(new View.OnClickListener()
+				
+			button_overflow.setOnClickListener(new View.OnClickListener()
 			{
 					@Override
 					public void onClick(View p1)
 					{
-						if (text_description.getVisibility() != View.VISIBLE)
+						PopupMenu popup = new PopupMenu(MainActivity.this, button_overflow);
+						popup.setOnMenuItemClickListener(new PopupMenu.OnMenuItemClickListener()
 						{
-							text_description.setVisibility(View.VISIBLE);
-							image_menu.setImageResource(R.drawable.menu_up);
-							
-							if (scroll.canScrollVertically(1))
-								layout_buttons.setElevation(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 8, getResources().getDisplayMetrics()));
-						}
-						else
-						{
-							text_description.setVisibility(View.GONE);
-							image_menu.setImageResource(R.drawable.menu_down);
-							layout_buttons.setElevation(0);
-						}
+								@Override
+								public boolean onMenuItemClick(MenuItem item)
+								{
+									switch (item.getItemId())
+									{
+										case R.id.item_preferences:
+											startActivity(new Intent(MainActivity.this, PreferenceActivity.class));
+											return true;
+											
+										case R.id.item_view:
+											startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+											return true;
+											
+										case R.id.item_add:
+											startService(false, false, true);
+											return true;
+											
+										default:
+											return false;
+									}
+								}
+						});
+						
+						MenuInflater inflater = popup.getMenuInflater();
+						inflater.inflate(R.menu.main, popup.getMenu());
+						popup.show();
 					}
 			});
 				
-			String url;
 			if (getIntent().getAction().equals(Intent.ACTION_VIEW))
 			{
 				url = getIntent().getData().toString();
@@ -224,6 +249,26 @@ public class MainActivity extends Activity
 		}
 		
     }
+	
+	public void startService(boolean shuffle, boolean repeat, boolean add)
+	{
+		Intent intent = new Intent(MainActivity.this, BGMService.class);
+		intent.setAction(BGMService.ACTION_PLAY);
+		
+		intent.putExtra("url", streamUrl);
+		intent.putExtra("repeat", repeat);
+		intent.putExtra("shuffle", shuffle);
+		intent.putExtra("urls", urls.toArray(new String[urls.size()]));
+		intent.putExtra("titles", titles.toArray(new String[titles.size()]));
+		intent.putExtra("artists", artists.toArray(new String[artists.size()]));
+		intent.putExtra("add", add);
+		intent.putExtra("time", seek.getProgress());
+			
+		startService(intent);
+
+		if (!add)
+			finish();
+	}
 	
 	public boolean isInternetAvailable() 
 	{
@@ -239,16 +284,30 @@ public class MainActivity extends Activity
 		{
 			try
 			{
-				String url = p1[0];
+				url = p1[0];
 				int index0, index1, index2;
 				Matcher m;
 				
 				if (url.contains("list="))
 				{
+					titles.clear();
+					artists.clear();
+					urls.clear();
+					
 					index0 = Math.max(url.indexOf("http://"), url.indexOf("https://"));
-					playlistTitle = url.substring(0, index0 - 2);
-					url = url.substring(index0);
+					if (index0 > 2)
+						playlistTitle = url.substring(0, index0 - 2);
+					else
+						playlistTitle = "Playlist";
+						
+					MainActivity.this.url = url = url.substring(index0);
 					playlist = true;
+					boolean playListSite = url.contains("playlist?");
+					
+					index0 = url.indexOf("index=");
+					index1 = url.indexOf("&", index0);
+					if (index0 != -1)
+						playlistIndex = Integer.parseInt(url.substring(index0 + 6, index1 == -1 ? url.length() : index1));
 					
 					HttpClient httpclient = new DefaultHttpClient(); 
 					HttpGet httpget = new HttpGet(url);
@@ -269,45 +328,96 @@ public class MainActivity extends Activity
 
 					page = sb.toString();
 					
-					index2 = 0;
+					int index3 = 0;
 					while (true)
 					{
-						index0 = page.indexOf("pl-video yt-uix-tile ", index2);
-						if (index0 == -1)
-							index0 = page.indexOf("yt-uix-scroller-scroll-unit", index2);
-							
-						index1 = index0 == -1 ? -1 : page.indexOf("data-video-id=\"", index0);
-						index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 15);
-						
-						if (index2 != -1)
+						if (playListSite)
 						{
-							urls.add("https://youtu.be/" + page.substring(index1 + 15, index2));
-						}
-						else
-							break;
+							index0 = page.indexOf("pl-video yt-uix-tile ", index3);
+							index1 = index0 == -1 ? -1 : page.indexOf("data-video-id=\"", index0);
+							index3 = index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 15);
 							
-						index1 = index0 == -1 ? -1 : page.indexOf("data-title=\"", index0);
-						index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 12);
+							if (index2 != -1)
+							{
+								ids.add(page.substring(index1 + 15, index2));
+								urls.add("https://www.youtube.com/watch?v=" + page.substring(index1 + 15, index2));
+							}
+							else
+								break;
+							
+							index1 = index0 == -1 ? -1 : page.indexOf("data-title=\"", index0);
+							index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 12);
+							
+							if (index2 != -1)
+								titles.add(page.substring(index1 + 12, index2));
+							else
+								titles.add("" + titles.size());
+								
+							index0 = page.indexOf("pl-video-owner", index0);
+							index1 = index0 == -1 ? -1 : page.indexOf(">", index0 + 17);
+							index2 = index1 == -1 ? -1 : page.indexOf("</a>", index1 + 1);
 
-						if (index2 != -1)
-						{
-							titles.add(page.substring(index1 + 12, index2));
+							if (index2 != -1)
+								artists.add(page.substring(index1 + 1, index2));
+							else
+								artists.add("Unknown Artist");
 						}
 						else
-							break;
+						{
+							index0 = page.indexOf("yt-uix-scroller-scroll-unit", index3);
+							index1 = index0 == -1 ? -1 : page.indexOf("data-video-id=\"", index0);
+							index3 = index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 15);
+
+							if (index2 != -1)
+							{
+								ids.add(page.substring(index1 + 15, index2));
+								urls.add("https://www.youtube.com/watch?v=" + page.substring(index1 + 15, index2) + "&gl=US");
+							}
+							else
+								break;
+								
+							index1 = index0 == -1 ? -1 : page.indexOf("data-video-title=\"", index0);
+							index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 18);
+
+							if (index2 != -1)
+								titles.add(page.substring(index1 + 18, index2));
+							else
+								titles.add("" + titles.size());
+
+							index1 = index0 == -1 ? -1 : page.indexOf("data-video-username=\"", index0);
+							index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 21);
+
+							if (index2 != -1)
+								artists.add(page.substring(index1 + 21, index2));
+							else
+								artists.add("Unknown Artist");
+						}
 					}
 					
-					url = urls.get(0);
+					url = urls.get(playlistIndex);
 				}
 				
 				if (url.contains("youtu.be"))
-					id = url.substring(url.lastIndexOf("/") + 1);
+				{
+					index0 = url.lastIndexOf("/");
+					index1 = url.indexOf("?", index0);
+					id = url.substring(index0 + 1, index1 == -1 ? url.length() : index1);
+				}
 				else
 				{
 					index0 = url.indexOf("v=");
 					index1 = url.indexOf("&", index0);
 					id = url.substring(index0 + 2, index1 == -1 ? url.length() : index1);
 				}
+				
+				time = 0;
+				
+				index0 = url.indexOf("t=");
+				index1 = index0 == -1 ? - 1 : url.indexOf("&", index0);
+				if (index0 != -1)
+					time = StringUtils.fromUrlTime(url.substring(index0 + 2, index1 == -1 ? url.length() : index1));
+			
+				url = "https://www.youtube.com/watch?v=" + id + "&gl=US";
 					
 				HttpClient httpclient = new DefaultHttpClient(); 
 				HttpGet httpget = new HttpGet(url);
@@ -335,7 +445,7 @@ public class MainActivity extends Activity
 				index2 = index1 == -1 ? -1 : m.start();
 				
 				if (index2 != -1)
-					artist = Utils.unescapeJava(page.substring(index1 + 1, index2));
+					artist = StringUtils.unescapeJava(page.substring(index1 + 1, index2));
 					
 				index1 = page.indexOf("\"title\":\"");
 				m = Pattern.compile("(?<!\\\\)\"").matcher(page);
@@ -343,15 +453,33 @@ public class MainActivity extends Activity
 				index2 = index1 == -1 ? -1 : m.start();
 
 				if (index2 != -1)
-					title = Utils.unescapeJava(page.substring(index1 + 9, index2));
+					title = StringUtils.unescapeJava(page.substring(index1 + 9, index2));
+				
+				index1 = page.indexOf("<meta itemprop=\"duration\" content=\"");
+				index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 35);
+				
+				if (index2 != -1)
+					duration = StringUtils.fromUrlTime(page.substring(index1 + 37, index2));
+					
+				index1 = page.indexOf("<strong class=\"watch-time-text\">");
+				index2 = index1 == -1 ? -1 : page.indexOf("</strong>", index1);
+
+				if (index2 != -1)
+					description = page.substring(index1 + 32, index2) + " • ";
+				
+				index1 = page.indexOf("<div class=\"watch-view-count\">");
+				index2 = index1 == -1 ? -1 : page.indexOf("</div>", index1);
+
+				if (index2 != -1)
+					description += page.substring(index1 + 30, index2) + " views<br /><br />";
 				
 				index1 = page.indexOf("<p id=\"eow-description\" >");
 				index2 = index1 == -1 ? -1 : page.indexOf("</p>", index1);
 					
 				if (index2 != -1)
-					description = page.substring(index1 + 25, index2);
+					description += page.substring(index1 + 25, index2);
 				
-				bitmap_video = getBitmap("id");
+				bitmap_video = getBitmap(id);
 				
 				index0 = page.indexOf("video-thumb  yt-thumb yt-thumb-48 g-hovercard");
 				index1 = index0 == -1 ? -1 : page.indexOf("data-thumb=\"", index0);
@@ -379,9 +507,24 @@ public class MainActivity extends Activity
 					}
 				}
 				
+				
+				index0 = 0;
+				while (true)
+				{
+					index0 = page.indexOf("quality=", index0);
+					index1 = index0 == -1 ? -1 : page.indexOf("\\u0026", index0);
+					
+					if (index1 == -1)
+						break;
+					else
+						System.out.println(page.substring(index0, index1));
+				}
+				
 				index0 = page.indexOf("quality=");
 				index1 = index0 == -1 ? -1 : page.indexOf("url=", index0);
-				index2 = index1 == -1 ? -1 : page.indexOf("\\u0026", index1);
+				index2 = index1 == -1 ? -1 : page.indexOf(",", index1);
+				index0 = index1 == -1 ? -1 : page.indexOf("\\u0026", index1);
+				index2 = index2 == -1 ? index0 : index0 == -1 ? index2 : Math.min(index0, index2);
 				
 				if (index2 != -1)
 				{
@@ -434,38 +577,97 @@ public class MainActivity extends Activity
 			{
 				if (bitmap_video != null)
 				{
-					image_video.setVisibility(View.VISIBLE);
+					switcher_video.setVisibility(View.VISIBLE);
 					image_video.setImageBitmap(bitmap_video);
 					
-					if (bitmap_artist != null)
+					if (!playlist && bitmap_artist != null)
 					{
 						image_artist.setVisibility(View.VISIBLE);
 						image_artist.setImageBitmap(bitmap_artist);
 						image_artist.setBackgroundDrawable(new BitmapDrawable(bitmap_artist));
 					}
+					else
+						image_artist.setVisibility(View.GONE);
 				}
 				
 				button_repeat.setVisibility(View.VISIBLE);
 				button_shuffle.setVisibility(View.VISIBLE);
 				button_play.setVisibility(View.VISIBLE);
-				
-				text_title.setText(playlist ? playlistTitle : title);
+				button_overflow.setVisibility(View.VISIBLE);
 				
 				if (playlist)
 				{
-					description = "";
-					for (String title : titles)
-						description += title + "<br />";
-					text_description.setText(Html.fromHtml(description));
-					text_description.setEllipsize(TextUtils.TruncateAt.END);
+					text_title.setText(playlistTitle);
+					text_artist.setText("Playlist");
+					text_description.setText(titles.size() + (titles.size() == 1 ? " video" : " videos"));
+					
+					new LoadImageTask().execute();
 				}
 				else
-					text_description.setText(Html.fromHtml(description));
+				{
+					seek.setVisibility(View.VISIBLE);
+					seek.setMax(duration);
+					seek.setProgress(time);
+					
+					text_title.setText(title);
+					text_artist.setText(artist);
+					setDescription(description);
+					
+					titles.add(title);
+					artists.add(artist);
+					urls.add(url);
+				}
+					
+				recycler.getAdapter().notifyDataSetChanged();
 			}
 		}
 	}
+
+	protected void setDescription(String html)
+	{
+		CharSequence sequence = Html.fromHtml(html);
+		SpannableStringBuilder strBuilder = new SpannableStringBuilder(sequence);
+		URLSpan[] urls = strBuilder.getSpans(0, sequence.length(), URLSpan.class);   
+		
+		int start, end;
+		char[] text;
+		ClickableSpan newSpan;
+		for (URLSpan span : urls) 
+		{
+			if (span.getURL().equals("#"))
+			{
+				start = strBuilder.getSpanStart(span);
+				end = strBuilder.getSpanEnd(span);
+				text = new char[end - start];
+				strBuilder.getChars(start, end, text, 0);
+				
+				newSpan = new SeekSpan(new String(text));
+				
+				strBuilder.setSpan(newSpan, start, end, strBuilder.getSpanFlags(span));
+				strBuilder.removeSpan(span);
+			}
+		}
+		text_description.setText(strBuilder);       
+	}
 	
-	public Bitmap getBitmap(String id) throws IOException
+	public class SeekSpan extends ClickableSpan
+	{
+		final int target;
+		
+		public SeekSpan(String text)
+		{
+			target = StringUtils.fromTime(text);
+		}
+		
+		@Override
+		public void onClick(View v)
+		{
+			if (target <= seek.getMax())
+				seek.setProgress(target);
+		}
+	}
+	
+	public Bitmap getBitmap(String id)
 	{
 		InputStream in = null;
 		Bitmap bitmap = null;
@@ -505,9 +707,421 @@ public class MainActivity extends Activity
 		{
 			bitmap = BitmapFactory.decodeStream(in);
 
-			in.close();
+			try
+			{
+				in.close();
+			}
+			catch (Exception e)
+			{
+				e.printStackTrace();
+			}
 		}
 		
 		return bitmap;
+	}
+	
+	public class LoadImageTask extends AsyncTask<Void, Void, Void>
+	{
+		@Override
+		protected Void doInBackground(Void[] p1)
+		{
+			for (int i = 0; i < ids.size(); ++i)
+			{
+				try
+				{
+					InputStream in = new URL("https://i.ytimg.com/vi/" + ids.get(i) + "/mqdefault.jpg").openStream();
+					bitmaps.put(ids.get(i), Bitmap.createBitmap(BitmapFactory.decodeStream(in)));
+					in.close();
+
+					MainActivity.this.runOnUiThread(new UpdateRunnable(i + 1));
+				}
+				catch (Exception e)
+				{
+					e.printStackTrace();
+				}
+			}
+			
+			return null;
+		}
+	}
+	
+	public class UpdateRunnable implements Runnable
+	{
+		final int index;
+		
+		public UpdateRunnable(int index)
+		{
+			this.index = index;
+		}
+
+		@Override
+		public void run()
+		{
+			recycler.getAdapter().notifyItemChanged(index);
+		}
+	}
+	
+	public class DescriptionAdapter extends RecyclerView.Adapter implements View.OnClickListener
+	{
+		public class VideoViewHolder extends RecyclerView.ViewHolder
+		{
+			final TextView title;
+			final TextView artist;
+			final ImageView image;
+			final ImageButton overflow;
+			
+			public VideoViewHolder(View v)
+			{
+				super(v);
+				
+				title = (TextView) v.findViewById(R.id.text_title);
+				artist = (TextView) v.findViewById(R.id.text_artist);
+				image = (ImageView) v.findViewById(R.id.image_video);
+				overflow = (ImageButton) v.findViewById(R.id.button_overflow);
+				
+				overflow.setOnClickListener(new View.OnClickListener()
+					{
+						@Override
+						public void onClick(View p1)
+						{
+							PopupMenu popup = new PopupMenu(MainActivity.this, overflow);
+							popup.setOnMenuItemClickListener(new PopupMenu.OnMenuItemClickListener()
+								{
+									@Override
+									public boolean onMenuItemClick(MenuItem item)
+									{
+										int index = recycler.getChildAdapterPosition(itemView);
+										
+										Intent intent;
+										switch (item.getItemId())
+										{
+											case R.id.item_view:
+												startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(urls.get(index - 1))));
+												return true;
+											
+											case R.id.item_play:
+												intent = new Intent(MainActivity.this, MainActivity.class);
+												intent.setAction(Intent.ACTION_SEND);
+												intent.putExtra(Intent.EXTRA_TEXT, urls.get(index - 1));
+												startActivity(intent);
+												return true;
+												
+											case R.id.item_mix:
+												intent = new Intent(MainActivity.this, MainActivity.class);
+												intent.setAction(Intent.ACTION_SEND);
+												intent.putExtra(Intent.EXTRA_TEXT, "Mix - " + Html.fromHtml(titles.get(index - 1)) + ": " + "http://www.youtube.com/watch?v=" + ids.get(index - 1) + "&list=RD" + ids.get(index - 1));
+												startActivity(intent);
+												return true;
+					
+											case R.id.item_add:
+												intent = new Intent(MainActivity.this, BGMService.class);
+												intent.setAction(BGMService.ACTION_PLAY);
+
+												intent.putExtra("url", streamUrl);
+												intent.putExtra("repeat", false);
+												intent.putExtra("shuffle", false);
+												intent.putExtra("urls", new String[] {urls.get(index - 1)});
+												intent.putExtra("titles", new String[] {titles.get(index - 1)});
+												intent.putExtra("artists", new String[] {artists.get(index - 1)});
+												intent.putExtra("add", true);
+												intent.putExtra("time", seek.getProgress());
+												
+												startService(intent);
+												return true;
+												
+											case R.id.item_remove:
+												urls.remove(index - 1);
+												titles.remove(index - 1);
+												artists.remove(index - 1);
+												if (bitmaps.containsKey(ids.get(index - 1)))
+													bitmaps.get(ids.get(index - 1)).recycle();
+												bitmaps.remove(ids.get(index - 1));
+												ids.remove(index - 1);
+
+												text_description.setText(titles.size() + (titles.size() == 1 ? " Video" : " Videos"));
+												recycler.getAdapter().notifyItemRemoved(index);
+
+												if (index - 1 == playlistIndex)
+												{
+													playlistIndex = 0;
+													recycler.getAdapter().notifyItemChanged(1);
+												}
+												return true;
+												
+											default:
+												return false;
+										}
+									}
+								});
+
+							MenuInflater inflater = popup.getMenuInflater();
+							inflater.inflate(R.menu.playlist, popup.getMenu());
+							popup.show();
+						}
+					});
+					
+				if (!isInternetAvailable())
+				{
+					layout_title.setVisibility(View.VISIBLE);
+					image_menu.setVisibility(View.GONE);
+					text_title.setText("No internet connection");
+				}
+			}
+		}
+		
+		public class HeaderViewHolder extends RecyclerView.ViewHolder
+		{
+			public HeaderViewHolder(View v)
+			{
+				super(v);
+
+				image_menu = (ImageView) v.findViewById(R.id.image_menu);
+				text_title = (TextView) v.findViewById(R.id.text_title);
+				text_artist = (TextView) v.findViewById(R.id.text_artist);
+				text_description = (TextView) v.findViewById(R.id.text_description);
+				
+				layout_title = v.findViewById(R.id.layout_title);
+				
+				text_description.setLinksClickable(true);
+				text_description.setMovementMethod(LinkMovementMethod.getInstance());
+				layout_title.setOnClickListener(new View.OnClickListener()
+					{
+						@Override
+						public void onClick(View p1)
+						{
+							if (progress.getVisibility() == View.VISIBLE)
+								return;
+							
+							if (text_description.getVisibility() != View.VISIBLE)
+							{
+								text_description.setVisibility(View.VISIBLE);
+								image_menu.setImageResource(R.drawable.menu_up);
+
+								if (playlist)
+									recycler.getAdapter().notifyDataSetChanged();
+
+								if (recycler.canScrollVertically(1))
+									layout_buttons.setElevation(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 8, getResources().getDisplayMetrics()));
+							}
+							else
+							{
+								text_description.setVisibility(View.GONE);
+								image_menu.setImageResource(R.drawable.menu_down);
+
+								if (playlist)
+									recycler.getAdapter().notifyDataSetChanged();
+
+								layout_buttons.setElevation(0);
+								layout_image.setElevation(0);
+							}
+						}
+					});
+			}
+		}
+		
+		@Override
+		public RecyclerView.ViewHolder onCreateViewHolder(ViewGroup group, int index)
+		{
+			if (index == 0)
+			{
+				return new HeaderViewHolder(LayoutInflater.from(group.getContext()).inflate(R.layout.item_header, group, false));
+			}
+			else
+			{
+				View v = LayoutInflater.from(group.getContext()).inflate(R.layout.item_playlist, group, false);
+
+				v.setOnClickListener(this);
+
+				return new VideoViewHolder(v);
+			}
+		}
+
+		@Override
+		public void onBindViewHolder(RecyclerView.ViewHolder holder, int index)
+		{
+			if (index == 0)
+			{
+				
+			}
+			else
+			{
+				VideoViewHolder v = (VideoViewHolder) holder;
+
+				v.title.setText(Html.fromHtml(titles.get(index - 1)));
+				v.artist.setText(Html.fromHtml(artists.get(index - 1)));
+				if (!bitmaps.containsKey(ids.get(index - 1)))
+					v.image.setImageResource(R.drawable.launcher);
+				else
+					v.image.setImageBitmap(bitmaps.get(ids.get(index - 1)));
+				
+				v.overflow.setImageResource(index - 1 == playlistIndex ? R.drawable.dots_vertical : R.drawable.dots_vertical_disabled);
+				v.itemView.setBackgroundColor(index - 1 == playlistIndex ? 0xFF303030 : 0xFF424242);
+			}
+		}
+
+		@Override
+		public int getItemCount()
+		{
+			return playlist && text_description != null && text_description.getVisibility() == View.VISIBLE ? 1 + titles.size() : 1;
+		}
+
+		@Override
+		public int getItemViewType(int position)
+		{
+			return position == 0 ? 0 : 1;
+		}
+		
+		@Override
+		public void onClick(View v)
+		{
+			final int index = recycler.getChildAdapterPosition(v) - 1;
+			final int old = playlistIndex + 1;
+			
+			if (index == playlistIndex)
+				return;
+			
+			playlistIndex = index;
+			
+			RecyclerView.ViewHolder v1 = recycler.findViewHolderForAdapterPosition(old);
+			if (v1 != null)
+			{
+				v1.itemView.setBackgroundColor(0xFF424242);
+				((ImageButton) v1.itemView.findViewById(R.id.button_overflow)).setImageResource(R.drawable.dots_vertical_disabled);
+			}
+			v.setBackgroundColor(0xFF303030);
+			((ImageButton) v.findViewById(R.id.button_overflow)).setImageResource(R.drawable.dots_vertical);
+			new ChangeImageTask().execute(ids.get(index));
+		}
+	}
+	
+	public class ChangeImageTask extends AsyncTask<String, Void, Bitmap>
+	{
+		@Override
+		protected Bitmap doInBackground(String[] p1)
+		{
+			Bitmap bitmap = getBitmap(p1[0]);
+			float ratio = (float) bitmap_video.getWidth() / bitmap_video.getHeight();
+			
+			Bitmap bitmap1;
+			if ((float) bitmap.getWidth() / bitmap.getHeight() > ratio)
+				bitmap1 = Bitmap.createBitmap(bitmap, (int) ((bitmap.getWidth() - bitmap.getHeight() * ratio) / 2F), 0, (int) (bitmap.getHeight() * ratio), bitmap.getHeight());
+			else
+				bitmap1 = Bitmap.createBitmap(bitmap, 0, (int) ((bitmap.getHeight() - bitmap.getWidth() / ratio) / 2F), bitmap.getWidth(), (int) (bitmap.getWidth() / ratio));
+			
+			if (bitmap != bitmap1)
+				bitmap.recycle();
+			
+			return bitmap1;
+		}
+
+		@Override
+		protected void onPostExecute(Bitmap result)
+		{
+			if (switcher_video.getDisplayedChild() == 0)
+			{
+				if (image_video2.getDrawable() instanceof BitmapDrawable)
+					((BitmapDrawable) image_video2.getDrawable()).getBitmap().recycle();
+					
+				image_video2.setImageBitmap(result);
+				switcher_video.showNext();
+			}
+			else
+			{
+				if (image_video.getDrawable() instanceof BitmapDrawable)
+					((BitmapDrawable) image_video.getDrawable()).getBitmap().recycle();
+				
+				image_video.setImageBitmap(result);
+				switcher_video.showPrevious();
+			}
+		}
+	}
+	
+	public class PlaylistTouchHelperCallback extends ItemTouchHelper.Callback
+	{
+		@Override
+		public boolean isLongPressDragEnabled() 
+		{
+			return true;
+		}
+
+		@Override
+		public boolean isItemViewSwipeEnabled()
+		{
+			return true;
+		}
+
+		@Override
+		public int getMovementFlags(RecyclerView recyclerView, RecyclerView.ViewHolder viewHolder)
+		{
+			if (viewHolder instanceof DescriptionAdapter.HeaderViewHolder)
+				return 0;
+			
+			int dragFlags = ItemTouchHelper.UP | ItemTouchHelper.DOWN;
+			int swipeFlags = ItemTouchHelper.START | ItemTouchHelper.END;
+			return makeMovementFlags(dragFlags, swipeFlags);
+		}
+
+		@Override
+		public boolean onMove(RecyclerView recyclerView, RecyclerView.ViewHolder viewHolder, RecyclerView.ViewHolder target)
+		{
+			int fromPosition = viewHolder.getAdapterPosition();
+			int toPosition = target.getAdapterPosition();
+			
+			if (fromPosition == 0 || toPosition == 0)
+				return false;
+			
+			if (fromPosition < toPosition)
+			{
+				for (int i = fromPosition; i < toPosition; i++)
+				{
+					Collections.swap(ids, i - 1, i);
+					Collections.swap(urls, i - 1, i);
+					Collections.swap(titles, i - 1, i);
+					Collections.swap(artists, i - 1, i);
+				}
+			} 
+			else
+			{
+				for (int i = fromPosition; i > toPosition; i--) 
+				{
+					Collections.swap(ids, i - 1, i - 2);
+					Collections.swap(urls, i - 1, i - 2);
+					Collections.swap(titles, i - 1, i - 2);
+					Collections.swap(artists, i - 1, i - 2);
+				}
+			}
+			
+			if (fromPosition - 1 == playlistIndex)
+				playlistIndex = toPosition - 1;
+			else if (toPosition - 1 == playlistIndex)
+				playlistIndex = fromPosition - 1;
+			
+			recycler.getAdapter().notifyItemMoved(fromPosition, toPosition);
+			
+			return true;
+		}
+
+		@Override
+		public void onSwiped(RecyclerView.ViewHolder viewHolder, int direction)
+		{
+			int index = viewHolder.getAdapterPosition();
+			
+			urls.remove(index - 1);
+			titles.remove(index - 1);
+			artists.remove(index - 1);
+			if (bitmaps.containsKey(ids.get(index - 1)))
+				bitmaps.get(ids.get(index - 1)).recycle();
+			bitmaps.remove(ids.get(index - 1));
+			ids.remove(index - 1);
+			
+			text_description.setText(titles.size() + (titles.size() == 1 ? " Video" : " Videos"));
+			recycler.getAdapter().notifyItemRemoved(index);
+			
+			if (index - 1 == playlistIndex)
+			{
+				playlistIndex = 0;
+				recycler.getAdapter().notifyItemChanged(1);
+			}
+		}
 	}
 }

@@ -1,0 +1,23 @@
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    
+    <item
+        android:id="@+id/item_view"
+        android:title="View on YouTube"/>
+    
+	<item
+        android:id="@+id/item_play"
+        android:title="Play this video"/>
+    
+	<item
+        android:id="@+id/item_mix"
+        android:title="Play mix"/>
+    
+	<item
+        android:id="@+id/item_remove"
+        android:title="Remove from list"/>
+    
+	<item
+        android:id="@+id/item_add"
+        android:title="Add to queue"/>
+    
+</menu>

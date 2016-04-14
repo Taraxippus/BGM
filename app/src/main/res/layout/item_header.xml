@@ -1,0 +1,60 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+	android:layout_width="match_parent"
+	android:layout_height="wrap_content"
+	android:orientation="vertical" >
+
+	<RelativeLayout
+		android:id="@+id/layout_title"
+		android:layout_width="match_parent"
+		android:layout_height="wrap_content"
+		android:background="?android:attr/selectableItemBackground"
+		android:clickable="true"
+		android:visibility="gone" >
+
+		<ImageView 
+			android:id="@+id/image_menu"
+			android:layout_width="36dp"
+			android:layout_height="36dp"
+			android:layout_alignParentTop="true"
+			android:layout_alignParentRight="true"
+			android:paddingTop="8dp"
+			android:paddingRight="8dp"
+			android:src="@drawable/menu_down" />
+
+		<TextView 
+			android:id="@+id/text_title"
+			android:layout_width="match_parent"
+			android:layout_height="wrap_content"
+			android:layout_alignParentTop="true"
+			android:layout_alignParentLeft="true"
+			android:layout_toLeftOf="@id/image_menu"
+			android:paddingTop="8dp"
+			android:paddingLeft="8dp"
+			android:paddingRight="8dp"
+			android:textColor="#FFFFFF"
+			android:textStyle="bold"
+			android:textAppearance="?android:attr/textAppearanceMedium" />
+		
+		<TextView 
+			android:id="@+id/text_artist"
+			android:layout_width="match_parent"
+			android:layout_height="wrap_content"
+			android:layout_alignParentBottom="true"
+			android:layout_alignParentLeft="true"
+			android:layout_below="@id/text_title"
+			android:paddingTop="4dp"
+			android:paddingLeft="8dp" 
+			android:paddingRight="8dp" 
+			android:paddingBottom="8dp" />
+		
+	</RelativeLayout>
+
+	<TextView 
+		android:id="@+id/text_description"
+		android:layout_width="match_parent"
+		android:layout_height="wrap_content"
+		android:gravity="left"
+		android:padding="8dp"
+		android:visibility="gone" />
+
+</LinearLayout>

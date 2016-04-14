@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+
+	<CheckBoxPreference
+        android:key="audioFocus"
+        android:title="Use audio focus"
+   	    android:summary="Stop music when a new audio source starts playing"
+        android:defaultValue="true" />
+
+	<Preference
+        android:key="volume"
+        android:title="Change volume"
+   	    android:summary="Change volume of the music" />
+	
+	<CheckBoxPreference
+        android:key="equalizer"
+        android:title="Enable equalizer"
+   	    android:summary="Enable an equalizer for the music" 
+		android:defaultValue="false" />
+	
+	<CheckBoxPreference
+        android:key="visualizer"
+        android:title="Enable visualizer"
+   	    android:summary="Show a music visualization" 
+		android:defaultValue="false" />
+	
+</PreferenceScreen>
