@@ -26,8 +26,9 @@ import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.impl.client.DefaultHttpClient;
 import android.preference.PreferenceManager;
+import android.content.SharedPreferences;
 
-public class BGMService extends Service implements MediaPlayer.OnPreparedListener, MediaPlayer.OnErrorListener, MediaPlayer.OnCompletionListener, AudioManager.OnAudioFocusChangeListener
+public class BGMService extends Service implements MediaPlayer.OnPreparedListener, MediaPlayer.OnErrorListener, MediaPlayer.OnCompletionListener, AudioManager.OnAudioFocusChangeListener, SharedPreferences.OnSharedPreferenceChangeListener
 {
 	public static final String SESSION = "com.taraxippus.bgm";
 	public static final String WIFI_LOCK = "com.taraxippus.bgm";
@@ -195,6 +196,9 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 							{
 								player.start();
 								
+								float volume = PreferenceManager.getDefaultSharedPreferences(BGMService.this).getFloat("volume", 1);
+								player.setVolume(volume, volume);
+								
 								if (!wifiLock.isHeld())
 									wifiLock.acquire();
 									
@@ -351,6 +355,8 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 						super.onSetRating(rating);
 					}
 				});
+				
+			PreferenceManager.getDefaultSharedPreferences(this).registerOnSharedPreferenceChangeListener(this);
 		}
 			
 		buildNotification(generateAction(R.drawable.load, "Load", ACTION_PLAY));
@@ -483,6 +489,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 		if (wifiLock.isHeld())
 			wifiLock.release();
 		
+		PreferenceManager.getDefaultSharedPreferences(this).unregisterOnSharedPreferenceChangeListener(this);
 			
 		super.onDestroy();
 	}
@@ -545,7 +552,8 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 				else if (!preparing && !player.isPlaying() && wasPlaying)
 					controller.getTransportControls().play();
 					
-				player.setVolume(1.0f, 1.0f);
+				float volume = PreferenceManager.getDefaultSharedPreferences(this).getFloat("volume", 1);
+				player.setVolume(volume, volume);
 				break;
 
 			case AudioManager.AUDIOFOCUS_LOSS:
@@ -573,12 +581,25 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 				if (!preparing && player != null)
 				{
 					if (player.isPlaying())
-						player.setVolume(0.1f, 0.1f);
+					{
+						volume = PreferenceManager.getDefaultSharedPreferences(this).getFloat("volume", 1);
+						player.setVolume(volume * 0.1F, volume * 0.1F);
+					}
 
 					wasPlaying = player.isPlaying();
 				}
 				
 				break;
+		}
+	}
+
+	@Override
+	public void onSharedPreferenceChanged(SharedPreferences p1, String key)
+	{
+		if (key.equals("volume") && !preparing && player != null && player.isPlaying())
+		{
+			float volume = PreferenceManager.getDefaultSharedPreferences(this).getFloat("volume", 1);
+			player.setVolume(volume, volume);
 		}
 	}
 	
@@ -625,7 +646,8 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 				String page = sb.toString();
 				int index0, index1, index2;
 				
-				index0 = page.indexOf("quality=");
+				index0 = page.indexOf("quality=" + PreferenceManager.getDefaultSharedPreferences(BGMService.this).getString("quality", "High").toLowerCase());
+				index0 = index0 == -1 ? page.indexOf("quality=") : index0;
 				index1 = index0 == -1 ? -1 : page.indexOf("url=", index0);
 				index2 = index1 == -1 ? -1 : page.indexOf(",", index1);
 				index0 = index1 == -1 ? -1 : page.indexOf("\\u0026", index1);

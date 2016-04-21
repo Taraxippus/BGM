@@ -12,16 +12,13 @@
         android:title="Change volume"
    	    android:summary="Change volume of the music" />
 	
-	<CheckBoxPreference
-        android:key="equalizer"
-        android:title="Enable equalizer"
-   	    android:summary="Enable an equalizer for the music" 
-		android:defaultValue="false" />
-	
-	<CheckBoxPreference
-        android:key="visualizer"
-        android:title="Enable visualizer"
-   	    android:summary="Show a music visualization" 
-		android:defaultValue="false" />
-	
+	<ListPreference
+		android:title="Choose quality"
+		android:summary="Choose the quality of the audio stream"
+		android:entries="@array/quality"
+		android:entryValues="@array/quality"
+		android:defaultValue="High"
+		android:key="quality" 
+	/>
+
 </PreferenceScreen>

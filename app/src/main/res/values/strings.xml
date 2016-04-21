@@ -2,6 +2,12 @@
 <resources>
 
     <string name="app_name">BGM</string>
-    <string name="hello_world">Hello world!</string>
+    
+	<string-array
+        name="quality">
 
+        <item>High</item>
+		<item>Medium</item>
+		<item>Low</item>
+    </string-array>
 </resources>

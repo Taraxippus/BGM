@@ -1,8 +1,6 @@
 package com.taraxippus.bgm;
 
 import android.app.Activity;
-import android.app.Notification;
-import android.app.NotificationManager;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
@@ -12,6 +10,7 @@ import android.net.ConnectivityManager;
 import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
+import android.preference.PreferenceManager;
 import android.support.v7.widget.LinearLayoutManager;
 import android.support.v7.widget.RecyclerView;
 import android.support.v7.widget.helper.ItemTouchHelper;
@@ -33,6 +32,7 @@ import android.widget.PopupMenu;
 import android.widget.ProgressBar;
 import android.widget.SeekBar;
 import android.widget.TextView;
+import android.widget.Toast;
 import android.widget.ViewSwitcher;
 import com.taraxippus.bgm.R;
 import java.io.BufferedReader;
@@ -75,7 +75,7 @@ public class MainActivity extends Activity
 	
 	int playlistIndex = 0;
 	
-	boolean playlist;
+	boolean playlist, loadMore, mix;
 	String playlistTitle;
 	List<String> ids = new ArrayList<String>();
 	List<String> urls = new ArrayList<String>();
@@ -218,11 +218,12 @@ public class MainActivity extends Activity
 											return true;
 											
 										case R.id.item_view:
-											startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+											startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(!playlist ? (url.contains("?") ? url + "&" : url + "?") + "t=" + StringUtils.toUrlTime(seek.getProgress()) : url)));
 											return true;
 											
 										case R.id.item_add:
 											startService(false, false, true);
+											Toast.makeText(MainActivity.this, "Added to queue", Toast.LENGTH_SHORT).show();
 											return true;
 											
 										default:
@@ -295,11 +296,6 @@ public class MainActivity extends Activity
 					urls.clear();
 					
 					index0 = Math.max(url.indexOf("http://"), url.indexOf("https://"));
-					if (index0 > 2)
-						playlistTitle = url.substring(0, index0 - 2);
-					else
-						playlistTitle = "Playlist";
-						
 					MainActivity.this.url = url = url.substring(index0);
 					playlist = true;
 					boolean playListSite = url.contains("playlist?");
@@ -327,6 +323,27 @@ public class MainActivity extends Activity
 					reader.close();
 
 					page = sb.toString();
+					
+					if (playListSite)
+					{
+						index0 = page.indexOf("<a class=\"guide-item yt-uix-sessionlink yt-valign spf-link  guide-item-selected  \"");
+						index1 = index0 == -1 ? -1 : page.indexOf("title=\"", index0);
+						index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 6);
+
+						playlistTitle = index2 == -1 ? "Playlist" : page.substring(index1 + 6, index2);
+						
+						loadMore = page.contains("data-uix-load-more-href");
+					}
+					else
+					{
+						index1 = page.indexOf("data-list-title=\"");
+						index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 17);
+
+						playlistTitle = index2 == -1 ? "Playlist" : page.substring(index1 + 17, index2);
+						
+						mix = page.contains("playlist-mix-icon yt-sprite");
+						loadMore = mix;
+					}
 					
 					int index3 = 0;
 					while (true)
@@ -507,20 +524,8 @@ public class MainActivity extends Activity
 					}
 				}
 				
-				
-				index0 = 0;
-				while (true)
-				{
-					index0 = page.indexOf("quality=", index0);
-					index1 = index0 == -1 ? -1 : page.indexOf("\\u0026", index0);
-					
-					if (index1 == -1)
-						break;
-					else
-						System.out.println(page.substring(index0, index1));
-				}
-				
-				index0 = page.indexOf("quality=");
+				index0 = page.indexOf("quality=" + PreferenceManager.getDefaultSharedPreferences(MainActivity.this).getString("quality", "High").toLowerCase());
+				index0 = index0 == -1 ? page.indexOf("quality=") : index0;
 				index1 = index0 == -1 ? -1 : page.indexOf("url=", index0);
 				index2 = index1 == -1 ? -1 : page.indexOf(",", index1);
 				index0 = index1 == -1 ? -1 : page.indexOf("\\u0026", index1);
@@ -529,7 +534,7 @@ public class MainActivity extends Activity
 				if (index2 != -1)
 				{
 					streamUrl = URLDecoder.decode(page.substring(index1 + 4, index2)).toString();
-						
+					
 					return 0;
 				}
 				else if (page.contains("unavailable-message"))
@@ -599,7 +604,7 @@ public class MainActivity extends Activity
 				{
 					text_title.setText(playlistTitle);
 					text_artist.setText("Playlist");
-					text_description.setText(titles.size() + (titles.size() == 1 ? " video" : " videos"));
+					text_description.setText(titles.size() + (loadMore ? "+" : "") + (titles.size() == 1 ? " video" : " videos"));
 					
 					new LoadImageTask().execute();
 				}
@@ -827,6 +832,9 @@ public class MainActivity extends Activity
 												intent.putExtra("time", seek.getProgress());
 												
 												startService(intent);
+												
+												Toast.makeText(MainActivity.this, "Added to queue", Toast.LENGTH_SHORT).show();
+												
 												return true;
 												
 											case R.id.item_remove:
@@ -838,7 +846,7 @@ public class MainActivity extends Activity
 												bitmaps.remove(ids.get(index - 1));
 												ids.remove(index - 1);
 
-												text_description.setText(titles.size() + (titles.size() == 1 ? " Video" : " Videos"));
+												text_description.setText(titles.size() + (loadMore ? "+" : "") + (titles.size() == 1 ? " Video" : " Videos"));
 												recycler.getAdapter().notifyItemRemoved(index);
 
 												if (index - 1 == playlistIndex)
@@ -919,12 +927,42 @@ public class MainActivity extends Activity
 			}
 		}
 		
-		@Override
-		public RecyclerView.ViewHolder onCreateViewHolder(ViewGroup group, int index)
+		public class LoadMoreViewHolder extends RecyclerView.ViewHolder
 		{
-			if (index == 0)
+			final TextView text_title;
+			final ProgressBar progress;
+			
+			public LoadMoreViewHolder(View v)
+			{
+				super(v);
+
+				text_title = (TextView) v.findViewById(R.id.text_title);
+				progress = (ProgressBar) v.findViewById(R.id.progress);
+				
+				text_title.setOnClickListener(new View.OnClickListener()
+					{
+						@Override
+						public void onClick(View p1)
+						{
+							text_title.setVisibility(View.INVISIBLE);
+							progress.setVisibility(View.VISIBLE);
+							
+							new LoadMoreTask().execute();
+						}
+					});
+			}
+		}
+		
+		@Override
+		public RecyclerView.ViewHolder onCreateViewHolder(ViewGroup group, int type)
+		{
+			if (type == 0)
 			{
 				return new HeaderViewHolder(LayoutInflater.from(group.getContext()).inflate(R.layout.item_header, group, false));
+			}
+			else if (type == 2)
+			{
+				return new LoadMoreViewHolder(LayoutInflater.from(group.getContext()).inflate(R.layout.item_load_more, group, false));
 			}
 			else
 			{
@@ -939,11 +977,7 @@ public class MainActivity extends Activity
 		@Override
 		public void onBindViewHolder(RecyclerView.ViewHolder holder, int index)
 		{
-			if (index == 0)
-			{
-				
-			}
-			else
+			if (getItemViewType(index) == 1)
 			{
 				VideoViewHolder v = (VideoViewHolder) holder;
 
@@ -962,13 +996,13 @@ public class MainActivity extends Activity
 		@Override
 		public int getItemCount()
 		{
-			return playlist && text_description != null && text_description.getVisibility() == View.VISIBLE ? 1 + titles.size() : 1;
+			return playlist && text_description != null && text_description.getVisibility() == View.VISIBLE ? 1 + titles.size() + (loadMore ? 1 : 0) : 1;
 		}
 
 		@Override
 		public int getItemViewType(int position)
 		{
-			return position == 0 ? 0 : 1;
+			return position == 0 ? 0 : loadMore && position == getItemCount() - 1 ? 2 : 1;
 		}
 		
 		@Override
@@ -1000,6 +1034,9 @@ public class MainActivity extends Activity
 		protected Bitmap doInBackground(String[] p1)
 		{
 			Bitmap bitmap = getBitmap(p1[0]);
+			if (bitmap == null)
+				return null;
+			
 			float ratio = (float) bitmap_video.getWidth() / bitmap_video.getHeight();
 			
 			Bitmap bitmap1;
@@ -1017,6 +1054,9 @@ public class MainActivity extends Activity
 		@Override
 		protected void onPostExecute(Bitmap result)
 		{
+			if (result == null)
+				return;
+			
 			if (switcher_video.getDisplayedChild() == 0)
 			{
 				if (image_video2.getDrawable() instanceof BitmapDrawable)
@@ -1033,6 +1073,31 @@ public class MainActivity extends Activity
 				image_video.setImageBitmap(result);
 				switcher_video.showPrevious();
 			}
+		}
+	}
+	
+	public class LoadMoreTask extends AsyncTask<String, Void, String>
+	{
+
+		@Override
+		protected String doInBackground(String[] p1)
+		{
+			if (mix)
+			{
+				
+			}
+			else
+			{
+				
+			}
+			
+			return null;
+		}
+
+		@Override
+		protected void onPostExecute(String result)
+		{
+			recycler.getAdapter().notifyDataSetChanged();
 		}
 	}
 	
@@ -1053,7 +1118,7 @@ public class MainActivity extends Activity
 		@Override
 		public int getMovementFlags(RecyclerView recyclerView, RecyclerView.ViewHolder viewHolder)
 		{
-			if (viewHolder instanceof DescriptionAdapter.HeaderViewHolder)
+			if (!(viewHolder instanceof DescriptionAdapter.VideoViewHolder))
 				return 0;
 			
 			int dragFlags = ItemTouchHelper.UP | ItemTouchHelper.DOWN;
@@ -1067,7 +1132,7 @@ public class MainActivity extends Activity
 			int fromPosition = viewHolder.getAdapterPosition();
 			int toPosition = target.getAdapterPosition();
 			
-			if (fromPosition == 0 || toPosition == 0)
+			if (!(viewHolder instanceof DescriptionAdapter.VideoViewHolder) || !(target instanceof DescriptionAdapter.VideoViewHolder))
 				return false;
 			
 			if (fromPosition < toPosition)
@@ -1114,7 +1179,7 @@ public class MainActivity extends Activity
 			bitmaps.remove(ids.get(index - 1));
 			ids.remove(index - 1);
 			
-			text_description.setText(titles.size() + (titles.size() == 1 ? " Video" : " Videos"));
+			text_description.setText(titles.size() + (loadMore ? "+" : "") + (titles.size() == 1 ? " Video" : " Videos"));
 			recycler.getAdapter().notifyItemRemoved(index);
 			
 			if (index - 1 == playlistIndex)
