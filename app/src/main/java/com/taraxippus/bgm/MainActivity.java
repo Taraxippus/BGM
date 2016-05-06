@@ -31,6 +31,7 @@ import android.widget.ImageView;
 import android.widget.PopupMenu;
 import android.widget.ProgressBar;
 import android.widget.SeekBar;
+import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.ViewSwitcher;
@@ -51,28 +52,28 @@ import org.apache.http.HttpResponse;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.impl.client.DefaultHttpClient;
+import android.util.LruCache;
+import android.app.AlertDialog;
 
 public class MainActivity extends Activity 
 {
 	ProgressBar progress;
 	SeekBar seek;
 	ViewSwitcher switcher_video;
+	Switch switch_auto;
 	ImageView image_video, image_video2, image_artist, image_menu;
-	TextView text_title, text_artist, text_description;
+	TextView text_title, text_artist, text_description, text_time;
 	Button button_cancel;
 	ImageButton button_shuffle, button_play, button_repeat, button_overflow;
 	View layout_title, layout_buttons, layout_image;
 	RecyclerView recycler;
 	
-	String page;
-	String id;
-	String url, streamUrl;
+	String page, id, playListId, url, loadMoreUrl;
 	String title, artist, description;
 	Bitmap bitmap_video;
 	Bitmap bitmap_artist;
 	int duration;
 	int time;
-	
 	int playlistIndex = 0;
 	
 	boolean playlist, loadMore, mix;
@@ -81,7 +82,7 @@ public class MainActivity extends Activity
 	List<String> urls = new ArrayList<String>();
 	List<String> titles = new ArrayList<String>();
 	List<String> artists = new ArrayList<String>();
-	HashMap<String, Bitmap> bitmaps = new HashMap<String, Bitmap>();
+	LruCache<String, Bitmap> bitmap_cache;
 	
     @Override
     protected void onCreate(Bundle savedInstanceState)
@@ -151,6 +152,15 @@ public class MainActivity extends Activity
 		}
 		else
 		{
+			bitmap_cache = new LruCache<String, Bitmap>( (int) (Runtime.getRuntime().maxMemory() / 1024) / 4) 
+			{
+				@Override
+				protected int sizeOf(String key, Bitmap bitmap) 
+				{
+					return bitmap.getByteCount() / 1024;
+				}
+			};
+			
 			button_play.setOnClickListener(new View.OnClickListener()
 				{
 					@Override
@@ -180,12 +190,14 @@ public class MainActivity extends Activity
 						{
 							progress.setVisibility(View.VISIBLE);
 							seek.setVisibility(View.GONE);
+							text_time.setVisibility(View.GONE);
 							button_cancel.setVisibility(View.GONE);
 							button_repeat.setVisibility(View.GONE);
 							button_shuffle.setVisibility(View.GONE);
 							button_play.setVisibility(View.GONE);
 							button_overflow.setVisibility(View.GONE);
 							text_description.setVisibility(View.GONE);
+							switch_auto.setVisibility(View.GONE);
 							image_menu.setImageResource(R.drawable.menu_down);
 							image_artist.setVisibility(View.GONE);
 							layout_buttons.setElevation(0);
@@ -195,7 +207,7 @@ public class MainActivity extends Activity
 							text_artist.setText("Playlist");
 							
 							url = "http://www.youtube.com/watch?v=" + id + "&list=RD" + id;
-							new ParsePageTask().execute("Mix - " + title + ": " + url);
+							new ParsePageTask().execute(url);
 						}
 					}
 				});
@@ -237,6 +249,27 @@ public class MainActivity extends Activity
 						popup.show();
 					}
 			});
+			
+			seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener()
+			{
+					@Override
+					public void onProgressChanged(SeekBar p1, int p2, boolean p3)
+					{
+						text_time.setText(StringUtils.toTime(p2));
+					}
+
+					@Override
+					public void onStartTrackingTouch(SeekBar p1)
+					{
+						text_time.setVisibility(View.VISIBLE);
+					}
+
+					@Override
+					public void onStopTrackingTouch(SeekBar p1)
+					{
+						text_time.setVisibility(View.GONE);
+					}
+			});
 				
 			if (getIntent().getAction().equals(Intent.ACTION_VIEW))
 			{
@@ -256,14 +289,14 @@ public class MainActivity extends Activity
 		Intent intent = new Intent(MainActivity.this, BGMService.class);
 		intent.setAction(BGMService.ACTION_PLAY);
 		
-		intent.putExtra("url", streamUrl);
 		intent.putExtra("repeat", repeat);
-		intent.putExtra("shuffle", shuffle);
+		intent.putExtra("shuffle", playlist ? shuffle : switch_auto.isChecked());
 		intent.putExtra("urls", urls.toArray(new String[urls.size()]));
 		intent.putExtra("titles", titles.toArray(new String[titles.size()]));
 		intent.putExtra("artists", artists.toArray(new String[artists.size()]));
 		intent.putExtra("add", add);
 		intent.putExtra("time", seek.getProgress());
+		intent.putExtra("index", playlistIndex);
 			
 		startService(intent);
 
@@ -287,7 +320,6 @@ public class MainActivity extends Activity
 			{
 				url = p1[0];
 				int index0, index1, index2;
-				Matcher m;
 				
 				if (url.contains("list="))
 				{
@@ -299,6 +331,10 @@ public class MainActivity extends Activity
 					MainActivity.this.url = url = url.substring(index0);
 					playlist = true;
 					boolean playListSite = url.contains("playlist?");
+					
+					index0 = url.indexOf("list=");
+					index1 = url.indexOf("&", index0);
+					playListId = url.substring(index0 + 5, index1 == -1 ? url.length() : index1);
 					
 					index0 = url.indexOf("index=");
 					index1 = url.indexOf("&", index0);
@@ -324,36 +360,21 @@ public class MainActivity extends Activity
 
 					page = sb.toString();
 					
+					int index3 = 0;
 					if (playListSite)
 					{
-						index0 = page.indexOf("<a class=\"guide-item yt-uix-sessionlink yt-valign spf-link  guide-item-selected  \"");
-						index1 = index0 == -1 ? -1 : page.indexOf("title=\"", index0);
-						index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 6);
+						index0 = page.indexOf("class=\"pl-header-title\"");
+						index1 = index0 == -1 ? -1 : page.indexOf(">", index0);
+						index2 = index1 == -1 ? -1 : page.indexOf("</h1>", index1);
 
-						playlistTitle = index2 == -1 ? "Playlist" : page.substring(index1 + 6, index2);
+						playlistTitle = index2 == -1 ? "Playlist" : page.substring(index1 + 1, index2);
 						
-						loadMore = page.contains("data-uix-load-more-href");
-					}
-					else
-					{
-						index1 = page.indexOf("data-list-title=\"");
-						index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 17);
-
-						playlistTitle = index2 == -1 ? "Playlist" : page.substring(index1 + 17, index2);
-						
-						mix = page.contains("playlist-mix-icon yt-sprite");
-						loadMore = mix;
-					}
-					
-					int index3 = 0;
-					while (true)
-					{
-						if (playListSite)
+						while (true)
 						{
 							index0 = page.indexOf("pl-video yt-uix-tile ", index3);
 							index1 = index0 == -1 ? -1 : page.indexOf("data-video-id=\"", index0);
 							index3 = index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 15);
-							
+
 							if (index2 != -1)
 							{
 								ids.add(page.substring(index1 + 15, index2));
@@ -361,15 +382,15 @@ public class MainActivity extends Activity
 							}
 							else
 								break;
-							
+
 							index1 = index0 == -1 ? -1 : page.indexOf("data-title=\"", index0);
 							index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 12);
-							
+
 							if (index2 != -1)
 								titles.add(page.substring(index1 + 12, index2));
 							else
 								titles.add("" + titles.size());
-								
+
 							index0 = page.indexOf("pl-video-owner", index0);
 							index1 = index0 == -1 ? -1 : page.indexOf(">", index0 + 17);
 							index2 = index1 == -1 ? -1 : page.indexOf("</a>", index1 + 1);
@@ -379,7 +400,26 @@ public class MainActivity extends Activity
 							else
 								artists.add("Unknown Artist");
 						}
-						else
+							
+						index1 = page.indexOf("data-uix-load-more-href=\"");
+						index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 25);
+						
+						if (index2 != -1)
+						{
+							loadMore = true;
+							loadMoreUrl = "https://www.youtube.com" + page.substring(index1 + 25, index2);
+						}
+						else 
+							loadMore = false;
+					}
+					else
+					{
+						index1 = page.indexOf("data-list-title=\"");
+						index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 17);
+
+						playlistTitle = index2 == -1 ? "Playlist" : page.substring(index1 + 17, index2);
+						
+						while (true)
 						{
 							index0 = page.indexOf("yt-uix-scroller-scroll-unit", index3);
 							index1 = index0 == -1 ? -1 : page.indexOf("data-video-id=\"", index0);
@@ -392,7 +432,7 @@ public class MainActivity extends Activity
 							}
 							else
 								break;
-								
+
 							index1 = index0 == -1 ? -1 : page.indexOf("data-video-title=\"", index0);
 							index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 18);
 
@@ -409,6 +449,18 @@ public class MainActivity extends Activity
 							else
 								artists.add("Unknown Artist");
 						}
+						
+						mix = page.contains("playlist-mix-icon yt-sprite");
+						
+						if (mix)
+						{
+							playlistIndex = 0;
+							
+							loadMore = true;
+							loadMoreUrl = urls.get(urls.size() - 1) + "&list=RD" + ids.get(ids.size() - 1);
+						}
+						else 
+							loadMore = false;
 					}
 					
 					url = urls.get(playlistIndex);
@@ -455,22 +507,19 @@ public class MainActivity extends Activity
 
 				page = sb.toString();
 
-				index0 = page.indexOf("\"author\"");
-				index1 = index0 == -1 ? -1 : page.indexOf("\"", index0 + 8);
-				m = Pattern.compile("(?<!\\\\)\"").matcher(page);
-				m.find(index1 + 1);
-				index2 = index1 == -1 ? -1 : m.start();
+				index0 = page.indexOf("class=\"yt-user-info\"");
+				index1 = index0 == -1 ? -1 : page.indexOf(">", index0 + 35);
+				index2 = index1 == -1 ? -1 : page.indexOf("</a>", index1);
 				
 				if (index2 != -1)
-					artist = StringUtils.unescapeJava(page.substring(index1 + 1, index2));
+					artist = page.substring(index1 + 1, index2);
 					
-				index1 = page.indexOf("\"title\":\"");
-				m = Pattern.compile("(?<!\\\\)\"").matcher(page);
-				m.find(index1 + 9);
-				index2 = index1 == -1 ? -1 : m.start();
-
+				index0 = page.indexOf("id=\"eow-title\"");
+				index1 = index0 == -1 ? -1 : page.indexOf(">", index0);
+				index2 = index1 == -1 ? -1 : page.indexOf("</span>", index1);
+				
 				if (index2 != -1)
-					title = StringUtils.unescapeJava(page.substring(index1 + 9, index2));
+					title = page.substring(index1 + 1, index2);
 				
 				index1 = page.indexOf("<meta itemprop=\"duration\" content=\"");
 				index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 35);
@@ -478,23 +527,26 @@ public class MainActivity extends Activity
 				if (index2 != -1)
 					duration = StringUtils.fromUrlTime(page.substring(index1 + 37, index2));
 					
-				index1 = page.indexOf("<strong class=\"watch-time-text\">");
+				index0 = page.indexOf("class=\"watch-time-text\"");
+				index1 = index0 == -1 ? -1 : page.indexOf(">", index0);
 				index2 = index1 == -1 ? -1 : page.indexOf("</strong>", index1);
-
-				if (index2 != -1)
-					description = page.substring(index1 + 32, index2) + " • ";
 				
-				index1 = page.indexOf("<div class=\"watch-view-count\">");
+				if (index2 != -1)
+					description = page.substring(index1 + 1, index2) + " • ";
+				
+				index0 = page.indexOf("class=\"watch-view-count\"");
+				index1 = index0 == -1 ? -1 : page.indexOf(">", index0);
 				index2 = index1 == -1 ? -1 : page.indexOf("</div>", index1);
-
-				if (index2 != -1)
-					description += page.substring(index1 + 30, index2) + " views<br /><br />";
 				
-				index1 = page.indexOf("<p id=\"eow-description\" >");
+				if (index2 != -1)
+					description += page.substring(index1 + 1, index2) + "<br /><br />";
+				
+				index0 = page.indexOf("id=\"eow-description\"");
+				index1 = index0 == -1 ? -1 : page.indexOf(">", index0);
 				index2 = index1 == -1 ? -1 : page.indexOf("</p>", index1);
 					
 				if (index2 != -1)
-					description += page.substring(index1 + 25, index2);
+					description += page.substring(index1 + 1, index2);
 				
 				bitmap_video = getBitmap(id);
 				
@@ -533,8 +585,6 @@ public class MainActivity extends Activity
 				
 				if (index2 != -1)
 				{
-					streamUrl = URLDecoder.decode(page.substring(index1 + 4, index2)).toString();
-					
 					return 0;
 				}
 				else if (page.contains("unavailable-message"))
@@ -547,6 +597,7 @@ public class MainActivity extends Activity
 			}
 			catch (Exception e)
 			{
+				System.out.println("Error parsing url:\n" + url);
 				e.printStackTrace();
 			}
 
@@ -570,7 +621,7 @@ public class MainActivity extends Activity
 					int index2 = index1 == -1 ? -1 : page.indexOf("</h1>", index1 + 45);
 					
 					if (index2 != -1)
-						text_title.setText(page.substring(index1 + 45, index2).trim());
+						text_title.setText(Html.fromHtml(page.substring(index1 + 45, index2).trim()));
 					else
 						text_title.setText("Video unavailable");
 				}
@@ -602,7 +653,7 @@ public class MainActivity extends Activity
 				
 				if (playlist)
 				{
-					text_title.setText(playlistTitle);
+					text_title.setText(Html.fromHtml(playlistTitle));
 					text_artist.setText("Playlist");
 					text_description.setText(titles.size() + (loadMore ? "+" : "") + (titles.size() == 1 ? " video" : " videos"));
 					
@@ -614,8 +665,8 @@ public class MainActivity extends Activity
 					seek.setMax(duration);
 					seek.setProgress(time);
 					
-					text_title.setText(title);
-					text_artist.setText(artist);
+					text_title.setText(Html.fromHtml(title));
+					text_artist.setText(Html.fromHtml(artist));
 					setDescription(description);
 					
 					titles.add(title);
@@ -732,10 +783,13 @@ public class MainActivity extends Activity
 		{
 			for (int i = 0; i < ids.size(); ++i)
 			{
+				if (bitmap_cache.get(ids.get(i)) != null)
+					continue;
+					
 				try
 				{
 					InputStream in = new URL("https://i.ytimg.com/vi/" + ids.get(i) + "/mqdefault.jpg").openStream();
-					bitmaps.put(ids.get(i), Bitmap.createBitmap(BitmapFactory.decodeStream(in)));
+					bitmap_cache.put(ids.get(i), Bitmap.createBitmap(BitmapFactory.decodeStream(in)));
 					in.close();
 
 					MainActivity.this.runOnUiThread(new UpdateRunnable(i + 1));
@@ -814,7 +868,7 @@ public class MainActivity extends Activity
 											case R.id.item_mix:
 												intent = new Intent(MainActivity.this, MainActivity.class);
 												intent.setAction(Intent.ACTION_SEND);
-												intent.putExtra(Intent.EXTRA_TEXT, "Mix - " + Html.fromHtml(titles.get(index - 1)) + ": " + "http://www.youtube.com/watch?v=" + ids.get(index - 1) + "&list=RD" + ids.get(index - 1));
+												intent.putExtra(Intent.EXTRA_TEXT, "http://www.youtube.com/watch?v=" + ids.get(index - 1) + "&list=RD" + ids.get(index - 1));
 												startActivity(intent);
 												return true;
 					
@@ -822,7 +876,6 @@ public class MainActivity extends Activity
 												intent = new Intent(MainActivity.this, BGMService.class);
 												intent.setAction(BGMService.ACTION_PLAY);
 
-												intent.putExtra("url", streamUrl);
 												intent.putExtra("repeat", false);
 												intent.putExtra("shuffle", false);
 												intent.putExtra("urls", new String[] {urls.get(index - 1)});
@@ -841,9 +894,9 @@ public class MainActivity extends Activity
 												urls.remove(index - 1);
 												titles.remove(index - 1);
 												artists.remove(index - 1);
-												if (bitmaps.containsKey(ids.get(index - 1)))
-													bitmaps.get(ids.get(index - 1)).recycle();
-												bitmaps.remove(ids.get(index - 1));
+												if (bitmap_cache.get(ids.get(index - 1)) != null)
+													bitmap_cache.get(ids.get(index - 1)).recycle();
+												bitmap_cache.remove(ids.get(index - 1));
 												ids.remove(index - 1);
 
 												text_description.setText(titles.size() + (loadMore ? "+" : "") + (titles.size() == 1 ? " Video" : " Videos"));
@@ -887,6 +940,9 @@ public class MainActivity extends Activity
 				text_title = (TextView) v.findViewById(R.id.text_title);
 				text_artist = (TextView) v.findViewById(R.id.text_artist);
 				text_description = (TextView) v.findViewById(R.id.text_description);
+				text_time = (TextView) v.findViewById(R.id.text_time);
+				
+				switch_auto = (Switch) v.findViewById(R.id.switch_auto);
 				
 				layout_title = v.findViewById(R.id.layout_title);
 				
@@ -903,6 +959,8 @@ public class MainActivity extends Activity
 							if (text_description.getVisibility() != View.VISIBLE)
 							{
 								text_description.setVisibility(View.VISIBLE);
+								if (!playlist)
+									switch_auto.setVisibility(View.VISIBLE);
 								image_menu.setImageResource(R.drawable.menu_up);
 
 								if (playlist)
@@ -914,6 +972,7 @@ public class MainActivity extends Activity
 							else
 							{
 								text_description.setVisibility(View.GONE);
+								switch_auto.setVisibility(View.GONE);
 								image_menu.setImageResource(R.drawable.menu_down);
 
 								if (playlist)
@@ -983,10 +1042,10 @@ public class MainActivity extends Activity
 
 				v.title.setText(Html.fromHtml(titles.get(index - 1)));
 				v.artist.setText(Html.fromHtml(artists.get(index - 1)));
-				if (!bitmaps.containsKey(ids.get(index - 1)))
+				if (bitmap_cache.get(ids.get(index - 1)) == null)
 					v.image.setImageResource(R.drawable.launcher);
 				else
-					v.image.setImageBitmap(bitmaps.get(ids.get(index - 1)));
+					v.image.setImageBitmap(bitmap_cache.get(ids.get(index - 1)));
 				
 				v.overflow.setImageResource(index - 1 == playlistIndex ? R.drawable.dots_vertical : R.drawable.dots_vertical_disabled);
 				v.itemView.setBackgroundColor(index - 1 == playlistIndex ? 0xFF303030 : 0xFF424242);
@@ -1082,13 +1141,117 @@ public class MainActivity extends Activity
 		@Override
 		protected String doInBackground(String[] p1)
 		{
-			if (mix)
+			try
 			{
-				
+				HttpClient httpclient = new DefaultHttpClient(); 
+				HttpGet httpget = new HttpGet(loadMoreUrl);
+				HttpResponse response = httpclient.execute(httpget); 
+				HttpEntity entity = response.getEntity();
+
+				BufferedReader reader = new BufferedReader(new InputStreamReader(entity.getContent()));
+
+				StringBuilder sb = new StringBuilder();
+
+				String line;
+				while ((line = reader.readLine()) != null)
+				{
+					sb.append(line);
+				}
+
+				reader.close();
+				page = sb.toString();
+			
+				int index0, index1, index2, index3 = 0;
+				if (mix)
+				{
+					for (int i = 0; true; i++)
+					{
+						index0 = page.indexOf("yt-uix-scroller-scroll-unit", index3);
+						index1 = index0 == -1 ? -1 : page.indexOf("data-video-id=\"", index0);
+						index3 = index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 15);
+						
+						if (index2 != -1)
+						{
+							if (i == 0)
+								continue;
+								
+							ids.add(page.substring(index1 + 15, index2));
+							urls.add("https://www.youtube.com/watch?v=" + page.substring(index1 + 15, index2) + "&gl=US");
+						}
+						else
+							break;
+							
+
+						index1 = index0 == -1 ? -1 : page.indexOf("data-video-title=\"", index0);
+						index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 18);
+
+						if (index2 != -1)
+							titles.add(page.substring(index1 + 18, index2));
+						else
+							titles.add("" + titles.size());
+
+						index1 = index0 == -1 ? -1 : page.indexOf("data-video-username=\"", index0);
+						index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 21);
+
+						if (index2 != -1)
+							artists.add(page.substring(index1 + 21, index2));
+						else
+							artists.add("Unknown Artist");
+					}
+					
+					loadMoreUrl = urls.get(urls.size() - 1) + "&list=RD" + ids.get(ids.size() - 1);
+				}
+				else
+				{
+					page = StringUtils.unescapeJava(page);
+					
+					while (true)
+					{
+						index0 = page.indexOf("pl-video yt-uix-tile ", index3);
+						index1 = index0 == -1 ? -1 : page.indexOf("data-video-id=\"", index0);
+						index3 = index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 15);
+
+						if (index2 != -1)
+						{
+							ids.add(page.substring(index1 + 15, index2));
+							urls.add("https://www.youtube.com/watch?v=" + page.substring(index1 + 15, index2));
+						}
+						else
+							break;
+
+						index1 = index0 == -1 ? -1 : page.indexOf("data-title=\"", index0);
+						index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 12);
+
+						if (index2 != -1)
+							titles.add(page.substring(index1 + 12, index2));
+						else
+							titles.add("" + titles.size());
+
+						index0 = page.indexOf("pl-video-owner", index0);
+						index1 = index0 == -1 ? -1 : page.indexOf(">", index0 + 17);
+						index2 = index1 == -1 ? -1 : page.indexOf("</a>", index1 + 1);
+
+						if (index2 != -1)
+							artists.add(page.substring(index1 + 1, index2));
+						else
+							artists.add("Unknown Artist");
+					}
+
+					index1 = page.indexOf("data-uix-load-more-href=\"");
+					index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 25);
+
+					if (index2 != -1)
+					{
+						loadMore = true;
+						loadMoreUrl = "https://www.youtube.com" + page.substring(index1 + 25, index2);
+					}
+					else 
+						loadMore = false;
+				}
 			}
-			else
+			catch (Exception e)
 			{
-				
+				e.printStackTrace();
 			}
 			
 			return null;
@@ -1097,7 +1260,14 @@ public class MainActivity extends Activity
 		@Override
 		protected void onPostExecute(String result)
 		{
+			DescriptionAdapter.LoadMoreViewHolder vh = (DescriptionAdapter.LoadMoreViewHolder) recycler.getChildViewHolder(recycler.getChildAt(recycler.getChildCount() - 1));
+			vh.text_title.setVisibility(View.VISIBLE);
+			vh.progress.setVisibility(View.INVISIBLE);
+			
 			recycler.getAdapter().notifyDataSetChanged();
+			text_description.setText(titles.size() + (loadMore ? "+" : "") + (titles.size() == 1 ? " Video" : " Videos"));
+			
+			new LoadImageTask().execute();
 		}
 	}
 	
@@ -1174,9 +1344,9 @@ public class MainActivity extends Activity
 			urls.remove(index - 1);
 			titles.remove(index - 1);
 			artists.remove(index - 1);
-			if (bitmaps.containsKey(ids.get(index - 1)))
-				bitmaps.get(ids.get(index - 1)).recycle();
-			bitmaps.remove(ids.get(index - 1));
+			if (bitmap_cache.get(ids.get(index - 1)) != null)
+				bitmap_cache.get(ids.get(index - 1)).recycle();
+			bitmap_cache.remove(ids.get(index - 1));
 			ids.remove(index - 1);
 			
 			text_description.setText(titles.size() + (loadMore ? "+" : "") + (titles.size() == 1 ? " Video" : " Videos"));

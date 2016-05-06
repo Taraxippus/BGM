@@ -21,6 +21,17 @@
 			android:paddingRight="8dp"
 			android:src="@drawable/menu_down" />
 
+		<TextView
+			android:id="@+id/text_time"
+			android:layout_width="wrap_content"
+			android:layout_height="wrap_content"
+			android:layout_alignParentTop="true"
+			android:layout_alignParentRight="true"
+			android:paddingRight="4dp"
+			android:textColor="?android:attr/colorAccent" 
+			android:textStyle="bold"
+			android:visibility="gone"/>
+		
 		<TextView 
 			android:id="@+id/text_title"
 			android:layout_width="match_parent"
@@ -31,7 +42,7 @@
 			android:paddingTop="8dp"
 			android:paddingLeft="8dp"
 			android:paddingRight="8dp"
-			android:textColor="#FFFFFF"
+			android:textColor="?android:attr/textColorPrimary"
 			android:textStyle="bold"
 			android:textAppearance="?android:attr/textAppearanceMedium" />
 		
@@ -55,6 +66,16 @@
 		android:layout_height="wrap_content"
 		android:gravity="left"
 		android:padding="8dp"
+		android:visibility="gone" />
+	
+	<Switch
+		android:id="@+id/switch_auto"
+		android:layout_width="match_parent"
+		android:layout_height="wrap_content"
+		android:layout_margin="8dp"
+		android:gravity="right"
+		android:text="Autoplay"
+		android:textColor="?android:attr/textColorSecondary"
 		android:visibility="gone" />
 
 </LinearLayout>
