@@ -6,6 +6,8 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
+import android.graphics.PixelFormat;
 import android.media.AudioManager;
 import android.media.MediaPlayer;
 import android.media.Rating;
@@ -15,7 +17,14 @@ import android.net.wifi.WifiManager;
 import android.os.AsyncTask;
 import android.os.IBinder;
 import android.os.PowerManager;
+import android.preference.PreferenceManager;
 import android.text.Html;
+import android.util.TypedValue;
+import android.view.Gravity;
+import android.view.MotionEvent;
+import android.view.View;
+import android.view.WindowManager;
+import android.view.WindowManager.LayoutParams;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.URLDecoder;
@@ -25,8 +34,6 @@ import org.apache.http.HttpResponse;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.impl.client.DefaultHttpClient;
-import android.preference.PreferenceManager;
-import android.content.SharedPreferences;
 
 public class BGMService extends Service implements MediaPlayer.OnPreparedListener, MediaPlayer.OnErrorListener, MediaPlayer.OnCompletionListener, AudioManager.OnAudioFocusChangeListener, SharedPreferences.OnSharedPreferenceChangeListener
 {
@@ -66,6 +73,10 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 	
 	WifiManager.WifiLock wifiLock;
 	private static boolean preparing = true;
+	
+	private WindowManager windowManager;
+	private View view;
+	private FloatingWidgetBorder border;
 	
 	@Override
 	public int onStartCommand(Intent intent, int flags, int startId)
@@ -119,6 +130,167 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 			}
 		}
 			
+		if (PreferenceManager.getDefaultSharedPreferences(this).getBoolean("video", false))
+		{
+			if (view == null)
+			{
+				view = new View(this);
+				view.setBackgroundColor(0xFFFF8800);
+				view.setElevation(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 8, getResources().getDisplayMetrics()));
+
+				final int padding = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 24, getResources().getDisplayMetrics());
+
+				border = new FloatingWidgetBorder(this);
+
+				final LayoutParams paramsB = new WindowManager.LayoutParams(
+					300 + padding * 2,
+					300 + padding * 2,
+					LayoutParams.TYPE_SYSTEM_ALERT,
+					LayoutParams.FLAG_LAYOUT_NO_LIMITS | LayoutParams.FLAG_NOT_FOCUSABLE | LayoutParams.FLAG_HARDWARE_ACCELERATED | LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
+					PixelFormat.TRANSLUCENT);
+
+				windowManager = (WindowManager)getSystemService(WINDOW_SERVICE);
+
+				final LayoutParams paramsF = new WindowManager.LayoutParams(
+					300,
+					300,
+					LayoutParams.TYPE_SYSTEM_ALERT,
+					LayoutParams.FLAG_NOT_TOUCH_MODAL | LayoutParams.FLAG_LAYOUT_NO_LIMITS | LayoutParams.FLAG_NOT_FOCUSABLE | LayoutParams.FLAG_HARDWARE_ACCELERATED,
+					PixelFormat.TRANSLUCENT);
+
+				paramsF.gravity = Gravity.CENTER;
+
+				windowManager.addView(view, paramsF);
+
+				border.setVisibility(View.INVISIBLE);
+
+				try
+				{
+					view.setOnLongClickListener(new View.OnLongClickListener()
+						{
+							@Override
+							public boolean onLongClick(View p1)
+							{
+								if (border.getVisibility() == View.INVISIBLE)
+								{
+									border.setVisibility(View.VISIBLE);
+									windowManager.addView(border, paramsB);
+								}
+								return true;
+							}
+						});
+
+
+					border.setOnTouchListener(new View.OnTouchListener() 
+						{
+							private int initialX, initialY, initialWidth, initialHeight;
+
+							private float initialTouchX;
+							private float initialTouchY;
+
+							@Override
+							public boolean onTouch(View v, MotionEvent event) 
+							{
+								if (border == null)
+									return false;
+
+								switch(event.getAction())
+								{
+									case MotionEvent.ACTION_DOWN:
+										initialX = paramsF.x;
+										initialY = paramsF.y;
+										initialWidth = paramsF.width;
+										initialHeight = paramsF.height;
+										initialTouchX = event.getRawX();
+										initialTouchY = event.getRawY();
+
+										border.setActiveHandle(event.getX(), event.getY());
+
+										break;
+
+									case MotionEvent.ACTION_UP:
+										border.setActiveHandle(-1);
+										break;
+
+									case MotionEvent.ACTION_OUTSIDE:
+									case MotionEvent.ACTION_CANCEL:
+										border.setVisibility(View.INVISIBLE);
+										windowManager.removeView(border);
+										break;
+
+									case MotionEvent.ACTION_MOVE:
+
+										paramsF.x = initialX;
+										paramsF.y = initialY;
+										paramsF.width = initialWidth;
+										paramsF.height = initialHeight;
+
+										if (border.activeHandle == -1)
+										{
+											paramsF.x += (int) (event.getRawX() - initialTouchX);
+											paramsF.y += (int) (event.getRawY() - initialTouchY);
+
+										}
+										else
+										{
+											if ((border.activeHandle & 0b1) != 0)
+											{
+												paramsF.x += (int) (event.getRawX() - initialTouchX) / 2F;
+												paramsF.width -= (int) (event.getRawX() - initialTouchX);
+											}
+											if ((border.activeHandle & 0b10) != 0)
+											{
+												paramsF.x += (int) (event.getRawX() - initialTouchX) / 2F;
+												paramsF.width += (int) (event.getRawX() - initialTouchX);
+											}
+											if ((border.activeHandle & 0b100) != 0)
+											{
+												paramsF.y += (int) (event.getRawY() - initialTouchY) / 2F;
+												paramsF.height -= (int) (event.getRawY() - initialTouchY);
+											}
+											if ((border.activeHandle & 0b1000) != 0)
+											{
+												paramsF.y += (int) (event.getRawY() - initialTouchY) / 2F;
+												paramsF.height += (int) (event.getRawY() - initialTouchY);
+											}
+
+											paramsF.width = Math.max((int) border.handleWidth, paramsF.width);
+											paramsF.height = Math.max((int) border.handleWidth, paramsF.height);
+										}
+
+										paramsB.x = paramsF.x;
+										paramsB.y = paramsF.y;
+										paramsB.width = paramsF.width + padding * 2;
+										paramsB.height = paramsF.height + padding * 2;
+
+										windowManager.updateViewLayout(view, paramsF);
+										windowManager.updateViewLayout(border, paramsB);
+
+										break;
+								}
+								return false;
+							}
+						});
+
+				} 
+				catch (Exception e)
+				{
+					e.printStackTrace();
+				}
+			}
+		}
+		else if (view != null)
+		{
+			windowManager.removeView(view);
+
+			view = null;
+
+			if (border.getVisibility() == View.VISIBLE)
+				windowManager.removeView(border);
+
+			border = null;
+		}
+		
 		if (player == null)
 			initMediaSession();
 		
@@ -466,6 +638,18 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 			
 		if (wifiLock.isHeld())
 			wifiLock.release();
+		
+		if (view != null)
+		{
+			windowManager.removeView(view);
+
+			view = null;
+
+			if (border.getVisibility() == View.VISIBLE)
+				windowManager.removeView(border);
+
+			border = null;
+		}
 		
 		PreferenceManager.getDefaultSharedPreferences(this).unregisterOnSharedPreferenceChangeListener(this);
 			
