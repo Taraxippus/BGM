@@ -7,7 +7,10 @@ import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.graphics.Color;
 import android.graphics.PixelFormat;
+import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.Drawable;
 import android.media.AudioManager;
 import android.media.MediaPlayer;
 import android.media.Rating;
@@ -17,6 +20,7 @@ import android.media.session.MediaSession;
 import android.net.wifi.WifiManager;
 import android.opengl.GLSurfaceView;
 import android.os.AsyncTask;
+import android.os.Handler;
 import android.os.IBinder;
 import android.os.PowerManager;
 import android.preference.PreferenceManager;
@@ -31,6 +35,9 @@ import android.view.WindowManager.LayoutParams;
 import android.view.animation.Animation;
 import android.view.animation.AnimationUtils;
 import android.widget.ImageView;
+import android.widget.SeekBar;
+import android.widget.TextView;
+import com.taraxippus.bgm.StringUtils;
 import com.taraxippus.bgm.gl.ConfigChooser;
 import com.taraxippus.bgm.gl.GLRenderer;
 import java.io.BufferedReader;
@@ -43,7 +50,7 @@ import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.impl.client.DefaultHttpClient;
 
-public class BGMService extends Service implements MediaPlayer.OnPreparedListener, MediaPlayer.OnErrorListener, MediaPlayer.OnCompletionListener, MediaPlayer.OnVideoSizeChangedListener, AudioManager.OnAudioFocusChangeListener, SharedPreferences.OnSharedPreferenceChangeListener
+public class BGMService extends Service implements MediaPlayer.OnPreparedListener, MediaPlayer.OnErrorListener, MediaPlayer.OnCompletionListener, MediaPlayer.OnVideoSizeChangedListener, AudioManager.OnAudioFocusChangeListener, MediaPlayer.OnSeekCompleteListener, SharedPreferences.OnSharedPreferenceChangeListener
 {
 	public static final String SESSION = "com.taraxippus.bgm";
 	public static final String WIFI_LOCK = "com.taraxippus.bgm";
@@ -58,6 +65,9 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 	public static final String ACTION_REWIND = "com.taraxippus.bgm.action.REWIND";
 	public static final String ACTION_OPEN = "com.taraxippus.bgm.action.OPEN";
 	public static final String ACTION_SEEK = "com.taraxippus.bgm.action.SEEK";
+	public static final String ACTION_VIDEO = "com.taraxippus.bgm.action.VIDEO";
+	public static final String ACTION_VISUALIZER = "com.taraxippus.bgm.action.VISUALIZER";
+	public static final String ACTION_VISUALIZER_UNPIN = "com.taraxippus.bgm.action.UNPIN";
 	
 	final Random random = new Random();
 	
@@ -88,6 +98,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 	private SurfaceView view_video;
 	private View view, view_progress, view_visualizer;
 	private ImageView button_play;
+	private SeekBar view_seek;
 	private FloatingWidgetBorder border;
 	
 	@Override
@@ -144,6 +155,12 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 			initViews();
 			initVisualizerView();
 		}
+		else if (url == null || url.isEmpty())
+		{
+			stopSelf();
+			return -1;
+		}
+			
 		
 		if (player == null)
 			initMediaSession();
@@ -175,6 +192,9 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 		{
 			if (view_visualizer == null)
 			{
+				((NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE))
+					.cancel(NOTIFICATION_ID + 3);
+					
 				windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
 				
 				view_visualizer = LayoutInflater.from(this).inflate(R.layout.visualizer, null);
@@ -213,6 +233,18 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 						public void onClick(View p1)
 						{
 							releaseVisualizerViews();
+							
+							Intent intent = new Intent(getApplicationContext(), BGMService.class);
+							intent.setAction(ACTION_VISUALIZER);
+
+							Notification.Builder builder = new Notification.Builder(BGMService.this)
+								.setSmallIcon(R.drawable.launcher)
+								.setContentText("Click to show again")
+								.setContentTitle("Closed visualizer")
+								.setContentIntent(PendingIntent.getService(getApplicationContext(), 0, intent, 0));
+
+							((NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE))
+								.notify(NOTIFICATION_ID + 3, builder.build());
 						}		
 					});
 					
@@ -241,6 +273,18 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 									public void onAnimationRepeat(Animation p1) {}
 								});
 							layout_controls.startAnimation(fade);
+							
+							Intent intent = new Intent(getApplicationContext(), BGMService.class);
+							intent.setAction(ACTION_VISUALIZER_UNPIN);
+
+							Notification.Builder builder = new Notification.Builder(BGMService.this)
+								.setSmallIcon(R.drawable.launcher)
+								.setContentText("Click to unpin")
+								.setContentTitle("Pinned visualizer")
+								.setContentIntent(PendingIntent.getService(getApplicationContext(), 0, intent, 0));
+
+							((NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE))
+								.notify(NOTIFICATION_ID + 3, builder.build());
 						}		
 					});
 
@@ -354,6 +398,9 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 		{
 			if (view == null)
 			{
+				((NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE))
+					.cancel(NOTIFICATION_ID + 2);
+					
 				windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
 				
 				view = LayoutInflater.from(this).inflate(R.layout.video, null);
@@ -362,6 +409,8 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 				final View layout_controls = view.findViewById(R.id.layout_controls);
 				final View button_close = view.findViewById(R.id.button_close);
 				button_play = (ImageView) view.findViewById(R.id.button_play);
+				final TextView text_time = (TextView) view.findViewById(R.id.text_time);
+				view_seek = (SeekBar) view.findViewById(R.id.seek);
 				
 				if (border == null)
 				{
@@ -382,6 +431,50 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 				if (player != null && !preparing)
 					view_progress.setVisibility(View.GONE);
 				
+				final Drawable thumb = view_seek.getThumb();
+				final Drawable thumb_hidden = new ColorDrawable(Color.TRANSPARENT);
+				view_seek.setThumb(thumb_hidden);
+				
+				final Handler handler = new Handler();
+				new Runnable()
+					{
+						@Override
+						public void run()
+						{
+							if (player != null && view_seek.getThumb() == thumb_hidden)
+								view_seek.setProgress(player.getCurrentPosition() / 1000);
+
+							if (view != null)
+								handler.postDelayed(this, 1000);
+						}
+					}.run();
+	
+				
+				view_seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener()
+					{
+						@Override
+						public void onProgressChanged(SeekBar p1, int p2, boolean user)
+						{
+							if (text_time != null)
+								text_time.setText(StringUtils.toTime(p2));
+						}
+
+						@Override
+						public void onStartTrackingTouch(SeekBar p1)
+						{
+							view_seek.setThumb(thumb);
+						}
+
+						@Override
+						public void onStopTrackingTouch(SeekBar p1)
+						{
+							view_seek.setThumb(thumb_hidden);
+							
+							if (player != null)
+								player.seekTo(view_seek.getProgress() * 1000);
+						}
+					});
+					
 				button_play.setImageResource(player != null && !preparing && player.isPlaying() ? R.drawable.pause : R.drawable.play);
 				button_play.setOnClickListener(new View.OnClickListener()
 					{
@@ -416,6 +509,18 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 						public void onClick(View p1)
 						{
 							releaseViews();
+							
+							Intent intent = new Intent(getApplicationContext(), BGMService.class);
+							intent.setAction(ACTION_VIDEO);
+							
+							Notification.Builder builder = new Notification.Builder(BGMService.this)
+								.setSmallIcon(R.drawable.launcher)
+								.setContentText("Click to show again")
+								.setContentTitle("Closed video player")
+								.setContentIntent(PendingIntent.getService(getApplicationContext(), 0, intent, 0));
+
+							((NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE))
+								.notify(NOTIFICATION_ID + 2, builder.build());
 						}		
 				});
 				
@@ -503,6 +608,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 			player.setOnCompletionListener(this);
 			player.setOnErrorListener(this);
 			player.setOnVideoSizeChangedListener(this);
+			player.setOnSeekCompleteListener(this);
 			player.setWakeMode(this, PowerManager.PARTIAL_WAKE_LOCK);
 			player.setLooping(urls.length == 0 && repeat);
 
@@ -594,7 +700,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 										playlistIndex = 0;
 									else
 									{
-										if (player != null && !preparing && player.isPlaying())
+										if (player != null && !preparing)
 										{
 											player.seekTo(0);
 											controller.getTransportControls().pause();
@@ -633,7 +739,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 					{
 						super.onSkipToPrevious();
 						
-						if (!preparing && (player != null && player.isPlaying() && player.getCurrentPosition() > 1000))
+						if (!preparing && (player != null && player.getCurrentPosition() > 1000))
 							player.seekTo(0);
 						
 						else if (urls.length > 1)
@@ -664,7 +770,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 					@Override
 					public void onFastForward()
 					{
-						if (!preparing && player != null && player.isPlaying())
+						if (!preparing && player != null)
 							player.seekTo(Math.min(player.getDuration() - 1, player.getCurrentPosition() + 10000));
 						
 						super.onFastForward();
@@ -673,7 +779,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 					@Override
 					public void onRewind() 
 					{
-						if (!preparing && player != null && player.isPlaying())
+						if (!preparing && player != null)
 							player.seekTo(Math.max(0, player.getCurrentPosition() - 10000));
 						
 						super.onRewind();
@@ -816,6 +922,25 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 			intent1.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
 			startActivity(intent1);
 		}
+		else if (action.equalsIgnoreCase(ACTION_VIDEO))
+			initViews();
+			
+		else if (action.equalsIgnoreCase(ACTION_VISUALIZER))
+			initVisualizerView();
+			
+		else if (action.equalsIgnoreCase(ACTION_VISUALIZER_UNPIN))
+		{
+			if (view_visualizer != null)
+			{
+				LayoutParams paramsF = (LayoutParams) view_visualizer.getLayoutParams();
+				paramsF.flags &= ~LayoutParams.FLAG_NOT_TOUCHABLE;
+				windowManager.updateViewLayout(view_visualizer, paramsF);
+				
+				((NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE))
+					.cancel(NOTIFICATION_ID + 3);
+			}
+		}
+			
 	}
 	
 	@Override
@@ -842,6 +967,12 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 		
 		PreferenceManager.getDefaultSharedPreferences(this).unregisterOnSharedPreferenceChangeListener(this);
 			
+		NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+		nm.cancel(NOTIFICATION_ID);
+		nm.cancel(NOTIFICATION_ID + 1);
+		nm.cancel(NOTIFICATION_ID + 2);
+		nm.cancel(NOTIFICATION_ID + 3);
+		
 		super.onDestroy();
 	}
 	
@@ -891,8 +1022,18 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 		
 		if (view_progress != null)
 			view_progress.setVisibility(View.INVISIBLE);
+			
+		if (view_seek != null)
+			view_seek.setMax(player.getDuration() / 1000);
 	}
 
+	@Override
+	public void onSeekComplete(MediaPlayer p1)
+	{
+		if (view_seek != null)
+			view_seek.setProgress(player.getCurrentPosition() / 1000);
+	}
+	
 	@Override
 	public void onVideoSizeChanged(MediaPlayer p1, int width, int height)
 	{

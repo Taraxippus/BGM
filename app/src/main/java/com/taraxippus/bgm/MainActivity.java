@@ -5,7 +5,10 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Color;
 import android.graphics.drawable.BitmapDrawable;
+import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.Drawable;
 import android.net.ConnectivityManager;
 import android.net.Uri;
 import android.os.AsyncTask;
@@ -19,6 +22,7 @@ import android.text.SpannableStringBuilder;
 import android.text.method.LinkMovementMethod;
 import android.text.style.ClickableSpan;
 import android.text.style.URLSpan;
+import android.util.LruCache;
 import android.util.TypedValue;
 import android.view.LayoutInflater;
 import android.view.MenuInflater;
@@ -40,20 +44,14 @@ import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.URL;
-import java.net.URLDecoder;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import org.apache.http.HttpEntity;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.impl.client.DefaultHttpClient;
-import android.util.LruCache;
-import android.app.AlertDialog;
 
 public class MainActivity extends Activity 
 {
@@ -264,6 +262,10 @@ public class MainActivity extends Activity
 					}
 			});
 			
+			final Drawable thumb =seek.getThumb();
+			final Drawable thumb_hidden = new ColorDrawable(Color.TRANSPARENT);
+			seek.setThumb(thumb_hidden);
+			
 			seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener()
 			{
 					@Override
@@ -277,12 +279,14 @@ public class MainActivity extends Activity
 					public void onStartTrackingTouch(SeekBar p1)
 					{
 						text_time.setVisibility(View.VISIBLE);
+						seek.setThumb(thumb);
 					}
 
 					@Override
 					public void onStopTrackingTouch(SeekBar p1)
 					{
 						text_time.setVisibility(View.GONE);
+						seek.setThumb(thumb_hidden);
 					}
 			});
 				
