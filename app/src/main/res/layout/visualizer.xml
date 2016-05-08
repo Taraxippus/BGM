@@ -1,0 +1,41 @@
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+	android:gravity="center" 
+	android:theme="@style/MainTheme">
+
+	<android.opengl.GLSurfaceView
+		android:id="@+id/visualizer"
+		android:layout_gravity="center"
+		android:layout_width="match_parent"
+		android:layout_height="match_parent" />
+
+	<FrameLayout
+		android:id="@+id/layout_controls"
+		android:layout_width="match_parent"
+		android:layout_height="match_parent"
+		android:background="#AA000000" 
+		android:visibility="invisible" >
+
+		<ImageView
+			android:id="@+id/button_close"
+			android:layout_margin="2dp"
+			android:layout_width="wrap_content"
+			android:layout_height="wrap_content"
+			android:layout_gravity="top|right"
+			android:clickable="true"
+			android:background="?android:attr/selectableItemBackgroundBorderless"
+			android:src="@drawable/close"/>
+		
+		<ImageView
+			android:id="@+id/button_pin"
+			android:layout_width="wrap_content"
+			android:layout_height="wrap_content"
+			android:layout_gravity="center"
+			android:clickable="true"
+			android:background="?android:attr/selectableItemBackgroundBorderless"
+			android:src="@drawable/pin"/>
+
+	</FrameLayout>
+
+</FrameLayout>

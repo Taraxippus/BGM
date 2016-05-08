@@ -1,15 +1,32 @@
 <menu xmlns:android="http://schemas.android.com/apk/res/android">
     
+	<group android:checkableBehavior="all">
+		
+        <item 
+			android:id="@+id/item_video"
+			android:title="Enable video" 
+			android:icon="@drawable/video" />
+		
+        <item
+			android:id="@+id/item_visualizer"
+			android:title="Enable visualizer"
+			android:icon="@drawable/visualizer" />
+		
+    </group>
+	
 	<item
         android:id="@+id/item_view"
-        android:title="View on YouTube" />
+        android:title="View on YouTube"
+		android:icon="@drawable/youtube" />
 	
 	<item
         android:id="@+id/item_add"
-        android:title="Add to queue" />
+        android:title="Add to queue"
+		android:icon="@drawable/add" />
     
 	<item
         android:id="@+id/item_preferences"
-        android:title="Preferences" />
+        android:title="Preferences"
+		android:icon="@drawable/preferences" />
     
 </menu>

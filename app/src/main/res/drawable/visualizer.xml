@@ -1,0 +1,8 @@
+<!-- drawable/signal.xml -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:height="24dp"
+    android:width="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path android:fillColor="?android:attr/colorAccent" android:pathData="M 3,21 H 6 V 18 H 3 M 8,21 H 11 V 9 H 8 M 13,21 H 16 V 14 H 13 M 18,21 H 21 V 3 H 18 V 21 Z" />
+</vector>

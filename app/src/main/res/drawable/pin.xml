@@ -1,8 +1,8 @@
-<!-- drawable/skip-previous.xml -->
+<!-- drawable/pin.xml -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:height="24dp"
     android:width="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-    <path android:fillColor="?android:attr/colorAccent" android:pathData="M6,18.14V6.14H8V18.14H6M9.5,12.14L18,6.14V18.14L9.5,12.14Z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M16,12V4H17V2H7V4H8V12L6,14V16H11.2V22H12.8V16H18V14L16,12Z" />
 </vector>

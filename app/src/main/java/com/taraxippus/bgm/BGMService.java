@@ -11,20 +11,28 @@ import android.graphics.PixelFormat;
 import android.media.AudioManager;
 import android.media.MediaPlayer;
 import android.media.Rating;
+import android.media.audiofx.Visualizer;
 import android.media.session.MediaController;
 import android.media.session.MediaSession;
 import android.net.wifi.WifiManager;
+import android.opengl.GLSurfaceView;
 import android.os.AsyncTask;
 import android.os.IBinder;
 import android.os.PowerManager;
 import android.preference.PreferenceManager;
 import android.text.Html;
-import android.util.TypedValue;
 import android.view.Gravity;
-import android.view.MotionEvent;
+import android.view.LayoutInflater;
+import android.view.SurfaceHolder;
+import android.view.SurfaceView;
 import android.view.View;
 import android.view.WindowManager;
 import android.view.WindowManager.LayoutParams;
+import android.view.animation.Animation;
+import android.view.animation.AnimationUtils;
+import android.widget.ImageView;
+import com.taraxippus.bgm.gl.ConfigChooser;
+import com.taraxippus.bgm.gl.GLRenderer;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.URLDecoder;
@@ -35,7 +43,7 @@ import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.impl.client.DefaultHttpClient;
 
-public class BGMService extends Service implements MediaPlayer.OnPreparedListener, MediaPlayer.OnErrorListener, MediaPlayer.OnCompletionListener, AudioManager.OnAudioFocusChangeListener, SharedPreferences.OnSharedPreferenceChangeListener
+public class BGMService extends Service implements MediaPlayer.OnPreparedListener, MediaPlayer.OnErrorListener, MediaPlayer.OnCompletionListener, MediaPlayer.OnVideoSizeChangedListener, AudioManager.OnAudioFocusChangeListener, SharedPreferences.OnSharedPreferenceChangeListener
 {
 	public static final String SESSION = "com.taraxippus.bgm";
 	public static final String WIFI_LOCK = "com.taraxippus.bgm";
@@ -67,6 +75,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 	
 	boolean wasPlaying;
 	
+	Visualizer visualizer;
 	MediaPlayer player;
 	MediaSession session;
 	MediaController controller;
@@ -75,7 +84,10 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 	private static boolean preparing = true;
 	
 	private WindowManager windowManager;
-	private View view;
+	private GLRenderer view_renderer;
+	private SurfaceView view_video;
+	private View view, view_progress, view_visualizer;
+	private ImageView button_play;
 	private FloatingWidgetBorder border;
 	
 	@Override
@@ -103,7 +115,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 				titles = titles1;
 				artists = artists1;
 				
-				buildNotification(generateAction(R.drawable.pause, "Pause", ACTION_PAUSE));
+				buildNotification(R.drawable.pause, "Pause", ACTION_PAUSE);
 			}
 			else
 			{
@@ -120,7 +132,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 				time = intent.getIntExtra("time", -1) * 1000;
 				playlistIndex = intent.getIntExtra("index", 0);
 				
-				buildNotification(generateAction(R.drawable.load, "Loading", ACTION_PLAY));
+				buildNotification(R.drawable.load, "Loading", ACTION_PLAY);
 				
 				if (nextSongTask != null)
 					nextSongTask.cancel(true);
@@ -128,167 +140,9 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 				nextSongTask = new NextSongTask();
 				nextSongTask.execute(urls[playlistIndex]);
 			}
-		}
 			
-		if (PreferenceManager.getDefaultSharedPreferences(this).getBoolean("video", false))
-		{
-			if (view == null)
-			{
-				view = new View(this);
-				view.setBackgroundColor(0xFFFF8800);
-				view.setElevation(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 8, getResources().getDisplayMetrics()));
-
-				final int padding = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 24, getResources().getDisplayMetrics());
-
-				border = new FloatingWidgetBorder(this);
-
-				final LayoutParams paramsB = new WindowManager.LayoutParams(
-					300 + padding * 2,
-					300 + padding * 2,
-					LayoutParams.TYPE_SYSTEM_ALERT,
-					LayoutParams.FLAG_LAYOUT_NO_LIMITS | LayoutParams.FLAG_NOT_FOCUSABLE | LayoutParams.FLAG_HARDWARE_ACCELERATED | LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
-					PixelFormat.TRANSLUCENT);
-
-				windowManager = (WindowManager)getSystemService(WINDOW_SERVICE);
-
-				final LayoutParams paramsF = new WindowManager.LayoutParams(
-					300,
-					300,
-					LayoutParams.TYPE_SYSTEM_ALERT,
-					LayoutParams.FLAG_NOT_TOUCH_MODAL | LayoutParams.FLAG_LAYOUT_NO_LIMITS | LayoutParams.FLAG_NOT_FOCUSABLE | LayoutParams.FLAG_HARDWARE_ACCELERATED,
-					PixelFormat.TRANSLUCENT);
-
-				paramsF.gravity = Gravity.CENTER;
-
-				windowManager.addView(view, paramsF);
-
-				border.setVisibility(View.INVISIBLE);
-
-				try
-				{
-					view.setOnLongClickListener(new View.OnLongClickListener()
-						{
-							@Override
-							public boolean onLongClick(View p1)
-							{
-								if (border.getVisibility() == View.INVISIBLE)
-								{
-									border.setVisibility(View.VISIBLE);
-									windowManager.addView(border, paramsB);
-								}
-								return true;
-							}
-						});
-
-
-					border.setOnTouchListener(new View.OnTouchListener() 
-						{
-							private int initialX, initialY, initialWidth, initialHeight;
-
-							private float initialTouchX;
-							private float initialTouchY;
-
-							@Override
-							public boolean onTouch(View v, MotionEvent event) 
-							{
-								if (border == null)
-									return false;
-
-								switch(event.getAction())
-								{
-									case MotionEvent.ACTION_DOWN:
-										initialX = paramsF.x;
-										initialY = paramsF.y;
-										initialWidth = paramsF.width;
-										initialHeight = paramsF.height;
-										initialTouchX = event.getRawX();
-										initialTouchY = event.getRawY();
-
-										border.setActiveHandle(event.getX(), event.getY());
-
-										break;
-
-									case MotionEvent.ACTION_UP:
-										border.setActiveHandle(-1);
-										break;
-
-									case MotionEvent.ACTION_OUTSIDE:
-									case MotionEvent.ACTION_CANCEL:
-										border.setVisibility(View.INVISIBLE);
-										windowManager.removeView(border);
-										break;
-
-									case MotionEvent.ACTION_MOVE:
-
-										paramsF.x = initialX;
-										paramsF.y = initialY;
-										paramsF.width = initialWidth;
-										paramsF.height = initialHeight;
-
-										if (border.activeHandle == -1)
-										{
-											paramsF.x += (int) (event.getRawX() - initialTouchX);
-											paramsF.y += (int) (event.getRawY() - initialTouchY);
-
-										}
-										else
-										{
-											if ((border.activeHandle & 0b1) != 0)
-											{
-												paramsF.x += (int) (event.getRawX() - initialTouchX) / 2F;
-												paramsF.width -= (int) (event.getRawX() - initialTouchX);
-											}
-											if ((border.activeHandle & 0b10) != 0)
-											{
-												paramsF.x += (int) (event.getRawX() - initialTouchX) / 2F;
-												paramsF.width += (int) (event.getRawX() - initialTouchX);
-											}
-											if ((border.activeHandle & 0b100) != 0)
-											{
-												paramsF.y += (int) (event.getRawY() - initialTouchY) / 2F;
-												paramsF.height -= (int) (event.getRawY() - initialTouchY);
-											}
-											if ((border.activeHandle & 0b1000) != 0)
-											{
-												paramsF.y += (int) (event.getRawY() - initialTouchY) / 2F;
-												paramsF.height += (int) (event.getRawY() - initialTouchY);
-											}
-
-											paramsF.width = Math.max((int) border.handleWidth, paramsF.width);
-											paramsF.height = Math.max((int) border.handleWidth, paramsF.height);
-										}
-
-										paramsB.x = paramsF.x;
-										paramsB.y = paramsF.y;
-										paramsB.width = paramsF.width + padding * 2;
-										paramsB.height = paramsF.height + padding * 2;
-
-										windowManager.updateViewLayout(view, paramsF);
-										windowManager.updateViewLayout(border, paramsB);
-
-										break;
-								}
-								return false;
-							}
-						});
-
-				} 
-				catch (Exception e)
-				{
-					e.printStackTrace();
-				}
-			}
-		}
-		else if (view != null)
-		{
-			windowManager.removeView(view);
-
-			view = null;
-
-			if (border.getVisibility() == View.VISIBLE)
-				windowManager.removeView(border);
-
-			border = null;
+			initViews();
+			initVisualizerView();
 		}
 		
 		if (player == null)
@@ -298,6 +152,321 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 			handleIntent(intent);
 		
 		return super.onStartCommand(intent, flags, startId);
+	}
+	
+	public void initVisualizer()
+	{
+		if (visualizer != null)
+			releaseVisualizer();
+			
+		if (player != null && view_renderer != null)
+		{
+			visualizer = new Visualizer(player.getAudioSessionId());
+			visualizer.setEnabled(false);
+			visualizer.setCaptureSize(view_renderer.COUNT * 2);
+			visualizer.setDataCaptureListener(view_renderer, 10000, true, true);
+			visualizer.setEnabled(true);
+		}
+	}
+	
+	public void initVisualizerView()
+	{
+		if (PreferenceManager.getDefaultSharedPreferences(this).getBoolean("visualizer", false))
+		{
+			if (view_visualizer == null)
+			{
+				windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
+				
+				view_visualizer = LayoutInflater.from(this).inflate(R.layout.visualizer, null);
+				final View layout_controls = view_visualizer.findViewById(R.id.layout_controls);
+				final View button_close = view_visualizer.findViewById(R.id.button_close);
+				final View button_pin = view_visualizer.findViewById(R.id.button_pin);
+				
+				GLSurfaceView visualizer = (GLSurfaceView) view_visualizer.findViewById(R.id.visualizer);
+				visualizer.setEGLContextClientVersion(2);
+				visualizer.setPreserveEGLContextOnPause(true);
+				visualizer.setEGLConfigChooser(new ConfigChooser(this));
+				visualizer.getHolder().setFormat(PixelFormat.RGBA_8888);
+				visualizer.setRenderer(view_renderer = new GLRenderer(this));
+				
+				if (border == null)
+				{
+					border = new FloatingWidgetBorder(this);
+					border.setVisibility(View.INVISIBLE);
+				}
+
+				final LayoutParams paramsF2 = new WindowManager.LayoutParams(
+					300,
+					300,
+					LayoutParams.TYPE_SYSTEM_ALERT,
+					LayoutParams.FLAG_LAYOUT_NO_LIMITS | LayoutParams.FLAG_NOT_FOCUSABLE | LayoutParams.FLAG_HARDWARE_ACCELERATED,
+					PixelFormat.TRANSLUCENT);
+					
+				paramsF2.y = -300;
+				paramsF2.gravity = Gravity.CENTER;
+				windowManager.addView(view_visualizer, paramsF2);
+				
+				button_close.setOnClickListener(new View.OnClickListener()
+					{
+						@Override
+						public void onClick(View p1)
+						{
+							releaseVisualizerViews();
+						}		
+					});
+					
+				button_pin.setOnClickListener(new View.OnClickListener()
+					{
+						@Override
+						public void onClick(View p1)
+						{
+							paramsF2.flags |= LayoutParams.FLAG_NOT_TOUCHABLE;
+							windowManager.updateViewLayout(view_visualizer, paramsF2);
+							
+							Animation fade = AnimationUtils.loadAnimation(BGMService.this, R.anim.fade_out);
+							fade.setDuration(300);
+							fade.setAnimationListener(new Animation.AnimationListener()
+								{
+									@Override
+									public void onAnimationStart(Animation p1) {}
+
+									@Override
+									public void onAnimationEnd(Animation p1)
+									{
+										layout_controls.setVisibility(View.INVISIBLE);
+									}
+
+									@Override
+									public void onAnimationRepeat(Animation p1) {}
+								});
+							layout_controls.startAnimation(fade);
+						}		
+					});
+
+				view_visualizer.setOnClickListener(new View.OnClickListener()
+					{
+						@Override
+						public void onClick(View p1)
+						{
+							layout_controls.setVisibility(View.VISIBLE);
+							Animation fade = AnimationUtils.loadAnimation(BGMService.this, R.anim.fade_in);
+							fade.setDuration(300);
+							layout_controls.startAnimation(fade);
+						}
+					});
+				layout_controls.setOnClickListener(new View.OnClickListener()
+					{
+						@Override
+						public void onClick(View p1)
+						{
+							Animation fade = AnimationUtils.loadAnimation(BGMService.this, R.anim.fade_out);
+							fade.setDuration(300);
+							fade.setAnimationListener(new Animation.AnimationListener()
+								{
+									@Override
+									public void onAnimationStart(Animation p1) {}
+
+									@Override
+									public void onAnimationEnd(Animation p1)
+									{
+										layout_controls.setVisibility(View.INVISIBLE);
+									}
+
+									@Override
+									public void onAnimationRepeat(Animation p1) {}
+								});
+							layout_controls.startAnimation(fade);
+						}
+					});
+
+				View.OnLongClickListener showBorder = new View.OnLongClickListener()
+				{
+					@Override
+					public boolean onLongClick(View p1)
+					{
+						border.show(paramsF2, view_visualizer, false);
+						return true;
+					}
+				};
+				view_visualizer.setOnLongClickListener(showBorder);
+				layout_controls.setOnLongClickListener(showBorder);
+				
+				if (player != null)
+					initVisualizer();
+			}
+		}
+		else
+			releaseVisualizerViews();
+	}
+	
+	public void releaseVisualizer()
+	{
+		if (visualizer != null)
+		{
+			visualizer.setEnabled(false);
+			visualizer.release();
+			visualizer = null;
+		}
+	}
+	
+	public void releaseVisualizerViews()
+	{
+		releaseVisualizer();
+		if (view_visualizer != null)
+		{
+			windowManager.removeView(view_visualizer);
+
+			view_visualizer = null;
+
+			if (border.getVisibility() == View.VISIBLE && border.view == view_visualizer)
+				windowManager.removeView(border);
+
+			if (view == null)
+				border = null;
+		}
+	}
+	
+	public void releaseViews()
+	{
+		if (view != null)
+		{
+			if (player != null)
+				player.setDisplay(null);
+			
+			windowManager.removeView(view);
+
+			view = null;
+
+			if (border.getVisibility() == View.VISIBLE && border.view == view)
+				windowManager.removeView(border);
+				
+			if (view_visualizer == null)
+				border = null;
+		}
+	}
+	
+	public void initViews()
+	{
+		if (PreferenceManager.getDefaultSharedPreferences(this).getBoolean("video", false))
+		{
+			if (view == null)
+			{
+				windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
+				
+				view = LayoutInflater.from(this).inflate(R.layout.video, null);
+				view_video = (SurfaceView) view.findViewById(R.id.video);
+				view_progress = view.findViewById(R.id.progress_video);
+				final View layout_controls = view.findViewById(R.id.layout_controls);
+				final View button_close = view.findViewById(R.id.button_close);
+				button_play = (ImageView) view.findViewById(R.id.button_play);
+				
+				if (border == null)
+				{
+					border = new FloatingWidgetBorder(this);
+					border.setVisibility(View.INVISIBLE);
+				}
+					
+				final LayoutParams paramsF1 = new WindowManager.LayoutParams(
+					400,
+					300,
+					LayoutParams.TYPE_SYSTEM_ALERT,
+					LayoutParams.FLAG_LAYOUT_NO_LIMITS | LayoutParams.FLAG_NOT_FOCUSABLE | LayoutParams.FLAG_HARDWARE_ACCELERATED,
+					PixelFormat.TRANSLUCENT);
+
+				paramsF1.gravity = Gravity.CENTER;
+				windowManager.addView(view, paramsF1);
+				
+				if (player != null && !preparing)
+					view_progress.setVisibility(View.GONE);
+				
+				button_play.setImageResource(R.drawable.play);
+				button_play.setOnClickListener(new View.OnClickListener()
+					{
+						@Override
+						public void onClick(View p1)
+						{
+							Intent intent = new Intent(getApplicationContext(), BGMService.class);
+							intent.setAction(ACTION_PLAY);
+							handleIntent(intent);
+						}
+					});
+					
+				view_video.getHolder().addCallback(new SurfaceHolder.Callback()
+				{
+						@Override
+						public void surfaceCreated(SurfaceHolder p1)
+						{
+							if (player != null)
+								player.setDisplay(view_video.getHolder());
+						}
+
+						@Override
+						public void surfaceChanged(SurfaceHolder p1, int p2, int p3, int p4) {}
+				
+						@Override
+						public void surfaceDestroyed(SurfaceHolder p1) {}
+				});
+				
+				button_close.setOnClickListener(new View.OnClickListener()
+				{
+						@Override
+						public void onClick(View p1)
+						{
+							releaseViews();
+						}		
+				});
+				
+				view.setOnClickListener(new View.OnClickListener()
+					{
+						@Override
+						public void onClick(View p1)
+						{
+							layout_controls.setVisibility(View.VISIBLE);
+							Animation fade = AnimationUtils.loadAnimation(BGMService.this, R.anim.fade_in);
+							fade.setDuration(300);
+							layout_controls.startAnimation(fade);
+						}
+					});
+				layout_controls.setOnClickListener(new View.OnClickListener()
+					{
+						@Override
+						public void onClick(View p1)
+						{
+							Animation fade = AnimationUtils.loadAnimation(BGMService.this, R.anim.fade_out);
+							fade.setDuration(300);
+							fade.setAnimationListener(new Animation.AnimationListener()
+								{
+									@Override
+									public void onAnimationStart(Animation p1) {}
+
+									@Override
+									public void onAnimationEnd(Animation p1)
+									{
+										layout_controls.setVisibility(View.INVISIBLE);
+									}
+
+									@Override
+									public void onAnimationRepeat(Animation p1) {}
+								});
+							layout_controls.startAnimation(fade);
+						}
+					});
+
+				View.OnLongClickListener showBorder = new View.OnLongClickListener()
+					{
+						@Override
+						public boolean onLongClick(View p1)
+						{
+							border.show(paramsF1, view, true);
+							return true;
+						}
+					};
+				view.setOnLongClickListener(showBorder);
+				layout_controls.setOnLongClickListener(showBorder);
+			}
+		}
+		else 
+			releaseViews();
 	}
 	
 	public void releaseMediaSession()
@@ -330,8 +499,15 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 			player.setOnPreparedListener(this);
 			player.setOnCompletionListener(this);
 			player.setOnErrorListener(this);
+			player.setOnVideoSizeChangedListener(this);
 			player.setWakeMode(this, PowerManager.PARTIAL_WAKE_LOCK);
 			player.setLooping(urls.length == 0 && repeat);
+
+			if (view != null && view_video.getHolder().getSurface() != null && view_video.getHolder().getSurface().isValid())
+				player.setDisplay(view_video.getHolder());
+				
+			if (view_visualizer != null)
+				initVisualizer();
 		}
 		catch (Exception e)
 		{
@@ -372,7 +548,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 								if (!wifiLock.isHeld())
 									wifiLock.acquire();
 									
-								buildNotification(generateAction(R.drawable.pause, "Pause", ACTION_PAUSE));
+								buildNotification(R.drawable.pause, "Pause", ACTION_PAUSE);
 							}
 						}
 					}
@@ -390,7 +566,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 							if (wifiLock.isHeld() && (nextSongTask == null || nextSongTask.getStatus() != AsyncTask.Status.RUNNING))
 								wifiLock.release();
 								
-							buildNotification(generateAction(R.drawable.play, "Play", ACTION_PLAY));
+							buildNotification(R.drawable.play, "Play", ACTION_PLAY);
 						}
 					}
 
@@ -434,9 +610,10 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 							nextSongTask = new NextSongTask();
 							nextSongTask.execute(urls[playlistIndex]);
 						}
-						else if (!preparing && player.isPlaying())
+						else if (!preparing && player != null && player.isPlaying())
 						{
 							player.seekTo(0);
+								
 							controller.getTransportControls().pause();
 						}
 						else if (!preparing)
@@ -444,7 +621,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 							if (wifiLock.isHeld())
 								wifiLock.release();
 							
-							buildNotification(generateAction(R.drawable.play, "Play", ACTION_PLAY));
+							buildNotification(R.drawable.play, "Play", ACTION_PLAY);
 						}
 					}
 
@@ -453,9 +630,9 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 					{
 						super.onSkipToPrevious();
 						
-						if (!preparing && player != null && player.isPlaying() && player.getCurrentPosition() > 1000)
+						if (!preparing && (player != null && player.isPlaying() && player.getCurrentPosition() > 1000))
 							player.seekTo(0);
-							
+						
 						else if (urls.length > 1)
 						{
 							if (shuffle)
@@ -529,9 +706,12 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 			PreferenceManager.getDefaultSharedPreferences(this).registerOnSharedPreferenceChangeListener(this);
 		}
 			
-		buildNotification(generateAction(R.drawable.load, "Load", ACTION_PLAY));
+		buildNotification(R.drawable.load, "Load", ACTION_PLAY);
 		player.prepareAsync();
 		preparing = true;
+		
+		if (view_progress != null)
+			view_progress.setVisibility(View.VISIBLE);
 	}
 	
 	private Notification.Action generateAction(int icon, String title, String intentAction) 
@@ -542,8 +722,9 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 		return new Notification.Action.Builder(icon, title, pendingIntent).build();
 	}
 	
-	private void buildNotification(Notification.Action action)
+	private void buildNotification(final int icon, final String title, final String intentAction) 
 	{
+		Notification.Action action = generateAction(icon, title, intentAction);
 		Notification.MediaStyle style = new Notification.MediaStyle();
 		
 		Intent intent = new Intent(getApplicationContext(), BGMService.class);
@@ -571,7 +752,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 			builder.addAction(generateAction(R.drawable.fast_forward, "Fast Forward", ACTION_FAST_FORWARD));
 			builder.addAction(generateAction(R.drawable.stop, "Stop", ACTION_STOP));
 		}
-		
+	
 		style.setShowActionsInCompactView(1);
 		
 		Notification notification = builder.build();
@@ -579,6 +760,21 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 		((NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE))
 			.notify(NOTIFICATION_ID, notification);
 		startForeground(NOTIFICATION_ID, notification);
+		
+		if (button_play != null)
+		{
+			button_play.setImageResource(icon);
+			button_play.setOnClickListener(new View.OnClickListener()
+			{
+					@Override
+					public void onClick(View p1)
+					{
+						Intent intent = new Intent(getApplicationContext(), BGMService.class);
+						intent.setAction(intentAction);
+						handleIntent(intent);
+					}
+			});
+		}
 	}
 			
 	public void handleIntent(Intent intent)
@@ -613,7 +809,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 		{
 			Intent intent1 = new Intent(this, MainActivity.class);
 			intent1.setAction(Intent.ACTION_SEND);
-			intent1.putExtra(Intent.EXTRA_TEXT, urls[playlistIndex] + (player != null ? "&t=" + StringUtils.toUrlTime(player.getCurrentPosition() / 1000) : ""));
+			intent1.putExtra(Intent.EXTRA_TEXT, urls[playlistIndex] + (player != null ? "&t=" + StringUtils.toUrlTime((player.getCurrentPosition()) / 1000) : ""));
 			intent1.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
 			startActivity(intent1);
 		}
@@ -629,6 +825,8 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 	public void onDestroy()
 	{
 		releaseMediaSession();
+		releaseViews();
+		releaseVisualizerViews();
 		
 		if (session != null)
 			session.release();
@@ -638,18 +836,6 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 			
 		if (wifiLock.isHeld())
 			wifiLock.release();
-		
-		if (view != null)
-		{
-			windowManager.removeView(view);
-
-			view = null;
-
-			if (border.getVisibility() == View.VISIBLE)
-				windowManager.removeView(border);
-
-			border = null;
-		}
 		
 		PreferenceManager.getDefaultSharedPreferences(this).unregisterOnSharedPreferenceChangeListener(this);
 			
@@ -661,7 +847,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 	public boolean onError(MediaPlayer p1, int p2, int p3)
 	{
 		System.err.println("Media player error: " + p2 + " " + p3 + "\nURL=" + url);
-		buildNotification(generateAction(R.drawable.alert, "Error", ACTION_PLAY));
+		buildNotification(R.drawable.alert, "Error", ACTION_PLAY);
 		
 		if (wifiLock.isHeld())
 			wifiLock.release();
@@ -693,9 +879,35 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 		if (time > 0)
 		{
 			if (urls.length == 1)
+			{
 				player.seekTo(time);
+			}
 				
 			time = -1;
+		}
+		
+		if (view_progress != null)
+			view_progress.setVisibility(View.INVISIBLE);
+	}
+
+	@Override
+	public void onVideoSizeChanged(MediaPlayer p1, int width, int height)
+	{
+		border.aspectRatio = (float) width / height;
+		
+		if (view != null)
+		{
+			final LayoutParams paramsF = (LayoutParams) view.getLayoutParams();
+			final LayoutParams paramsB = (LayoutParams) border.getLayoutParams();
+			
+			paramsF.height = (int) (paramsF.width / border.aspectRatio);
+			windowManager.updateViewLayout(view, paramsF);
+			
+			if (paramsB != null && border.getVisibility() == View.VISIBLE && border.view == view)
+			{
+				paramsB.height = paramsF.height + border.padding * 2;
+				windowManager.updateViewLayout(border, paramsB);
+			}
 		}
 	}
 
@@ -763,6 +975,11 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 			float volume = PreferenceManager.getDefaultSharedPreferences(this).getFloat("volume", 1);
 			player.setVolume(volume, volume);
 		}
+		else if (key.equals("video"))
+			initViews();
+			
+		else if (key.equals("visualizer"))
+			initVisualizerView();
 	}
 	
 	public class NextSongTask extends AsyncTask<String, Void, String>

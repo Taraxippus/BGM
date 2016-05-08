@@ -16,15 +16,52 @@
 	<Preference
         android:key="volume"
         android:title="Change volume"
-   	    android:summary="Change volume of the music" />
+   	    android:summary="Change volume of the player" />
 	
 	<ListPreference
 		android:title="Choose quality"
-		android:summary="Choose the quality of the audio stream"
+		android:summary="Choose the quality of the stream"
 		android:entries="@array/quality"
 		android:entryValues="@array/quality"
 		android:defaultValue="High"
 		android:key="quality" 
 	/>
 
+	<PreferenceCategory
+		android:title="Visualizer" >
+		
+		<CheckBoxPreference
+			android:key="visualizer"
+			android:title="Visualizer"
+			android:summary="Show a draggable, resizable visualizer"
+			android:defaultValue="false" />
+		
+		<CheckBoxPreference
+			android:key="enableMSAA"
+			android:title="Enable antialiasing"
+			android:summary="Smooth the visualization"
+			android:defaultValue="true" />
+		
+		<CheckBoxPreference
+			android:key="circle"
+			android:title="Circle"
+			android:summary="Arrange bars as a circle"
+			android:defaultValue="false" />
+		
+		<CheckBoxPreference
+			android:key="rainbow"
+			android:title="Enable rainbow mode"
+			android:summary="Color the bars like a rainbow"
+			android:defaultValue="false"
+			android:disableDependentsState="true" />
+		
+		<Preference
+			android:key="color"
+			android:title="Color"
+			android:summary="Choose color"
+			android:defaultValue="#FFFFFF"
+			android:dependency="rainbow" />
+		
+	</PreferenceCategory>
+	
 </PreferenceScreen>

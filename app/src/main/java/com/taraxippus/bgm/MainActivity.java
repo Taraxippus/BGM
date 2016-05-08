@@ -225,6 +225,16 @@ public class MainActivity extends Activity
 								{
 									switch (item.getItemId())
 									{
+										case R.id.item_video:
+											item.setChecked(!item.isChecked());
+											PreferenceManager.getDefaultSharedPreferences(MainActivity.this).edit().putBoolean("video", item.isChecked()).apply();
+											return true;
+										
+											case R.id.item_visualizer:
+											item.setChecked(!item.isChecked());
+											PreferenceManager.getDefaultSharedPreferences(MainActivity.this).edit().putBoolean("visualizer", item.isChecked()).apply();
+											return true;
+											
 										case R.id.item_preferences:
 											startActivity(new Intent(MainActivity.this, PreferenceActivity.class));
 											return true;
@@ -246,6 +256,10 @@ public class MainActivity extends Activity
 						
 						MenuInflater inflater = popup.getMenuInflater();
 						inflater.inflate(R.menu.main, popup.getMenu());
+						
+						popup.getMenu().findItem(R.id.item_video).setChecked(PreferenceManager.getDefaultSharedPreferences(MainActivity.this).getBoolean("video", false));
+						popup.getMenu().findItem(R.id.item_visualizer).setChecked(PreferenceManager.getDefaultSharedPreferences(MainActivity.this).getBoolean("visualizer", false));
+						
 						popup.show();
 					}
 			});
@@ -255,7 +269,8 @@ public class MainActivity extends Activity
 					@Override
 					public void onProgressChanged(SeekBar p1, int p2, boolean p3)
 					{
-						text_time.setText(StringUtils.toTime(p2));
+						if (text_time != null)
+							text_time.setText(StringUtils.toTime(p2));
 					}
 
 					@Override
