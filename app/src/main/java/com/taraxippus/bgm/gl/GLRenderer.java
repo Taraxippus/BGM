@@ -28,7 +28,7 @@ public class GLRenderer implements GLSurfaceView.Renderer, Visualizer.OnDataCapt
 		System.arraycopy(p2, 0, fft, 0, p2.length);
 	}
 
-	public final int COUNT = 64;
+	public final int COUNT = 63;
 	public final int LINE_COUNT = 16;
 	public final float BAR_WIDTH = 0.25F;
 	public final float BAR_SPACE = 0.05F;
@@ -118,7 +118,7 @@ public class GLRenderer implements GLSurfaceView.Renderer, Visualizer.OnDataCapt
 	"}";
 
 	final float[] height_bars = new float[COUNT];
-	final byte[] fft = new byte[COUNT * 2];
+	final byte[] fft = new byte[(COUNT + 1) * 2];
 
 	final float[] projection = new float[16];
 	final float[] view = new float[16];
@@ -301,9 +301,9 @@ public class GLRenderer implements GLSurfaceView.Renderer, Visualizer.OnDataCapt
 		GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA);
 		
 		if (preferences.getBoolean("circle", false))
-			Matrix.setLookAtM(view, 0, preferences.getFloat("cameraX", 0), preferences.getFloat("cameraZ", 10), preferences.getFloat("cameraY", 0), 0, 0, 0, 0, 0, 1);
+			Matrix.setLookAtM(view, 0, preferences.getFloat("cameraX", 0), preferences.getFloat("cameraZ", 12), preferences.getFloat("cameraY", 0), 0, 0, 0, 0, 0, 1);
 		else
-			Matrix.setLookAtM(view, 0, preferences.getFloat("cameraX", 0), preferences.getFloat("cameraY", 0), preferences.getFloat("cameraZ", 10), 0, 0, 0, 0, 1, 0);
+			Matrix.setLookAtM(view, 0, preferences.getFloat("cameraX", 0), preferences.getFloat("cameraY", 0), preferences.getFloat("cameraZ", 12), 0, 0, 0, 0, 1, 0);
 
 		update = false;
 	}	
@@ -333,14 +333,9 @@ public class GLRenderer implements GLSurfaceView.Renderer, Visualizer.OnDataCapt
 			return;
 		}
 
-		for (int i = 0; i < COUNT; ++i)
-		{
-			if (i == 0)
-				height_bars[0] = height_bars[0] * 0.75F + 0.25F * 2 * nanToZero(Math.log10(fft[0] * fft[0] * 2));
-			else
-				height_bars[i] = height_bars[i] * 0.75F + 0.25F * 2 * nanToZero(Math.log10(Math.abs(fft[i * 2] * fft[i * 2] + fft[i * 2 + 1] * fft[i * 2 + 1])));
-
-		}
+		for (int i = 1; i <= COUNT; ++i)
+			height_bars[i - 1] = height_bars[i - 1] * 0.7F + 0.3F * 2.5F * nanToZero(Math.log10((float) (fft[i * 2] * fft[i * 2] + fft[i * 2 + 1] * fft[i * 2 + 1])));
+		
 
 		GLES20.glClear(GLES20.GL_DEPTH_BUFFER_BIT | GLES20.GL_COLOR_BUFFER_BIT);
 

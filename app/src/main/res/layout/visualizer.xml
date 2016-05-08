@@ -8,14 +8,15 @@
 		android:id="@+id/visualizer"
 		android:layout_gravity="center"
 		android:layout_width="match_parent"
-		android:layout_height="match_parent" />
+		android:layout_height="match_parent"/>
 
 	<FrameLayout
 		android:id="@+id/layout_controls"
 		android:layout_width="match_parent"
 		android:layout_height="match_parent"
 		android:background="#AA000000" 
-		android:visibility="invisible" >
+		android:visibility="invisible"
+		android:elevation="2dp" >
 
 		<ImageView
 			android:id="@+id/button_close"

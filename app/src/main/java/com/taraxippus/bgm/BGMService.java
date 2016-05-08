@@ -163,7 +163,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 		{
 			visualizer = new Visualizer(player.getAudioSessionId());
 			visualizer.setEnabled(false);
-			visualizer.setCaptureSize(view_renderer.COUNT * 2);
+			visualizer.setCaptureSize((view_renderer.COUNT + 1) * 2);
 			visualizer.setDataCaptureListener(view_renderer, 10000, true, true);
 			visualizer.setEnabled(true);
 		}
@@ -188,6 +188,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 				visualizer.setEGLConfigChooser(new ConfigChooser(this));
 				visualizer.getHolder().setFormat(PixelFormat.RGBA_8888);
 				visualizer.setRenderer(view_renderer = new GLRenderer(this));
+				visualizer.setZOrderMediaOverlay(true);
 				
 				if (border == null)
 				{
@@ -249,6 +250,8 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 						public void onClick(View p1)
 						{
 							layout_controls.setVisibility(View.VISIBLE);
+							layout_controls.bringToFront();
+							
 							Animation fade = AnimationUtils.loadAnimation(BGMService.this, R.anim.fade_in);
 							fade.setDuration(300);
 							layout_controls.startAnimation(fade);
@@ -379,14 +382,14 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 				if (player != null && !preparing)
 					view_progress.setVisibility(View.GONE);
 				
-				button_play.setImageResource(R.drawable.play);
+				button_play.setImageResource(player != null && !preparing && player.isPlaying() ? R.drawable.pause : R.drawable.play);
 				button_play.setOnClickListener(new View.OnClickListener()
 					{
 						@Override
 						public void onClick(View p1)
 						{
 							Intent intent = new Intent(getApplicationContext(), BGMService.class);
-							intent.setAction(ACTION_PLAY);
+							intent.setAction(player != null && !preparing && player.isPlaying() ? ACTION_PAUSE : ACTION_PLAY);
 							handleIntent(intent);
 						}
 					});
