@@ -94,19 +94,28 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 	private static boolean preparing = true;
 	
 	private WindowManager windowManager;
+	private NotificationManager notificationManager;
+	
 	private GLRenderer view_renderer;
 	private SurfaceView view_video;
 	private View view, view_progress, view_visualizer;
 	private ImageView button_play;
 	private SeekBar view_seek;
 	private FloatingWidgetBorder border;
+	private LayoutParams paramsF1, paramsF2;
 	
 	@Override
 	public int onStartCommand(Intent intent, int flags, int startId)
 	{
 		if (wifiLock == null)
 			wifiLock = ((WifiManager) getSystemService(Context.WIFI_SERVICE)).createWifiLock(WifiManager.WIFI_MODE_FULL, WIFI_LOCK);
-		
+			
+		if (windowManager == null)
+		{
+			windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
+			notificationManager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+		}
+			
 		if (intent != null && intent.hasExtra("urls"))
 		{
 			if (intent.getBooleanExtra("add", false) && urls != null)
@@ -160,7 +169,6 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 			stopSelf();
 			return -1;
 		}
-			
 		
 		if (player == null)
 			initMediaSession();
@@ -192,11 +200,8 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 		{
 			if (view_visualizer == null)
 			{
-				((NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE))
-					.cancel(NOTIFICATION_ID + 3);
+				notificationManager.cancel(NOTIFICATION_ID + 3);
 					
-				windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
-				
 				view_visualizer = LayoutInflater.from(this).inflate(R.layout.visualizer, null);
 				final View layout_controls = view_visualizer.findViewById(R.id.layout_controls);
 				final View button_close = view_visualizer.findViewById(R.id.button_close);
@@ -216,15 +221,19 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 					border.setVisibility(View.INVISIBLE);
 				}
 
-				final LayoutParams paramsF2 = new WindowManager.LayoutParams(
-					300,
-					300,
-					LayoutParams.TYPE_SYSTEM_ALERT,
-					LayoutParams.FLAG_LAYOUT_NO_LIMITS | LayoutParams.FLAG_NOT_FOCUSABLE | LayoutParams.FLAG_HARDWARE_ACCELERATED,
-					PixelFormat.TRANSLUCENT);
-					
-				paramsF2.y = -300;
-				paramsF2.gravity = Gravity.CENTER;
+				if (paramsF2 == null)
+				{
+					paramsF2 = new WindowManager.LayoutParams(
+						300,
+						300,
+						LayoutParams.TYPE_SYSTEM_ALERT,
+						LayoutParams.FLAG_LAYOUT_NO_LIMITS | LayoutParams.FLAG_NOT_FOCUSABLE | LayoutParams.FLAG_HARDWARE_ACCELERATED,
+						PixelFormat.TRANSLUCENT);
+
+					paramsF2.y = -300;
+					paramsF2.gravity = Gravity.CENTER;
+				}
+				
 				windowManager.addView(view_visualizer, paramsF2);
 				
 				button_close.setOnClickListener(new View.OnClickListener()
@@ -243,8 +252,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 								.setContentTitle("Closed visualizer")
 								.setContentIntent(PendingIntent.getService(getApplicationContext(), 0, intent, 0));
 
-							((NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE))
-								.notify(NOTIFICATION_ID + 3, builder.build());
+							notificationManager.notify(NOTIFICATION_ID + 3, builder.build());
 						}		
 					});
 					
@@ -283,8 +291,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 								.setContentTitle("Pinned visualizer")
 								.setContentIntent(PendingIntent.getService(getApplicationContext(), 0, intent, 0));
 
-							((NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE))
-								.notify(NOTIFICATION_ID + 3, builder.build());
+							notificationManager.notify(NOTIFICATION_ID + 3, builder.build());
 						}		
 					});
 
@@ -398,11 +405,8 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 		{
 			if (view == null)
 			{
-				((NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE))
-					.cancel(NOTIFICATION_ID + 2);
+				notificationManager.cancel(NOTIFICATION_ID + 2);
 					
-				windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
-				
 				view = LayoutInflater.from(this).inflate(R.layout.video, null);
 				view_video = (SurfaceView) view.findViewById(R.id.video);
 				view_progress = view.findViewById(R.id.progress_video);
@@ -418,14 +422,18 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 					border.setVisibility(View.INVISIBLE);
 				}
 					
-				final LayoutParams paramsF1 = new WindowManager.LayoutParams(
-					400,
-					300,
-					LayoutParams.TYPE_SYSTEM_ALERT,
-					LayoutParams.FLAG_LAYOUT_NO_LIMITS | LayoutParams.FLAG_NOT_FOCUSABLE | LayoutParams.FLAG_HARDWARE_ACCELERATED,
-					PixelFormat.TRANSLUCENT);
+				if (paramsF1 == null)
+				{
+					paramsF1 = new WindowManager.LayoutParams(
+						400,
+						300,
+						LayoutParams.TYPE_SYSTEM_ALERT,
+						LayoutParams.FLAG_LAYOUT_NO_LIMITS | LayoutParams.FLAG_NOT_FOCUSABLE | LayoutParams.FLAG_HARDWARE_ACCELERATED,
+						PixelFormat.TRANSLUCENT);
 
-				paramsF1.gravity = Gravity.CENTER;
+					paramsF1.gravity = Gravity.CENTER;
+				}
+				
 				windowManager.addView(view, paramsF1);
 				
 				if (player != null && !preparing)
@@ -444,6 +452,8 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 							if (player != null && view_seek.getThumb() == thumb_hidden)
 								view_seek.setProgress(player.getCurrentPosition() / 1000);
 
+							view_seek.setSecondaryProgress(player.getCurrentPosition() / 1000);
+							
 							if (view != null)
 								handler.postDelayed(this, 1000);
 						}
@@ -469,6 +479,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 						public void onStopTrackingTouch(SeekBar p1)
 						{
 							view_seek.setThumb(thumb_hidden);
+							view_seek.setSecondaryProgress(player.getCurrentPosition() / 1000);
 							
 							if (player != null)
 								player.seekTo(view_seek.getProgress() * 1000);
@@ -519,8 +530,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 								.setContentTitle("Closed video player")
 								.setContentIntent(PendingIntent.getService(getApplicationContext(), 0, intent, 0));
 
-							((NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE))
-								.notify(NOTIFICATION_ID + 2, builder.build());
+							notificationManager.notify(NOTIFICATION_ID + 2, builder.build());
 						}		
 				});
 				
@@ -866,8 +876,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 		
 		Notification notification = builder.build();
 		
-		((NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE))
-			.notify(NOTIFICATION_ID, notification);
+		notificationManager.notify(NOTIFICATION_ID, notification);
 		startForeground(NOTIFICATION_ID, notification);
 		
 		if (button_play != null)
@@ -936,8 +945,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 				paramsF.flags &= ~LayoutParams.FLAG_NOT_TOUCHABLE;
 				windowManager.updateViewLayout(view_visualizer, paramsF);
 				
-				((NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE))
-					.cancel(NOTIFICATION_ID + 3);
+				notificationManager.cancel(NOTIFICATION_ID + 3);
 			}
 		}
 			
@@ -967,11 +975,10 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 		
 		PreferenceManager.getDefaultSharedPreferences(this).unregisterOnSharedPreferenceChangeListener(this);
 			
-		NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-		nm.cancel(NOTIFICATION_ID);
-		nm.cancel(NOTIFICATION_ID + 1);
-		nm.cancel(NOTIFICATION_ID + 2);
-		nm.cancel(NOTIFICATION_ID + 3);
+		notificationManager.cancel(NOTIFICATION_ID);
+		notificationManager.cancel(NOTIFICATION_ID + 1);
+		notificationManager.cancel(NOTIFICATION_ID + 2);
+		notificationManager.cancel(NOTIFICATION_ID + 3);
 		
 		super.onDestroy();
 	}
@@ -992,8 +999,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 			.setContentText(titles[playlistIndex])
 			.setContentTitle("An error occured");
 
-		((NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE))
-			.notify(NOTIFICATION_ID + 1, builder.build());
+		notificationManager.notify(NOTIFICATION_ID + 1, builder.build());
 		
 		return true;
 	}
@@ -1031,16 +1037,19 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 	public void onSeekComplete(MediaPlayer p1)
 	{
 		if (view_seek != null)
+		{
+			view_seek.setSecondaryProgress(player.getCurrentPosition() / 1000);
 			view_seek.setProgress(player.getCurrentPosition() / 1000);
+		}
 	}
 	
 	@Override
 	public void onVideoSizeChanged(MediaPlayer p1, int width, int height)
 	{
-		border.aspectRatio = (float) width / height;
-		
 		if (view != null)
 		{
+			border.aspectRatio = (float) width / height;
+			
 			final LayoutParams paramsF = (LayoutParams) view.getLayoutParams();
 			final LayoutParams paramsB = (LayoutParams) border.getLayoutParams();
 			

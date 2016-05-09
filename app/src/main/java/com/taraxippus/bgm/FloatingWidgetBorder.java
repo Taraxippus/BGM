@@ -120,6 +120,12 @@ public class FloatingWidgetBorder extends FrameLayout
 
 				this.setActiveHandle(event.getX(), event.getY());
 
+				if (this.activeHandle == -1)
+				{
+					this.setVisibility(View.INVISIBLE);
+					windowManager.removeView(this);
+				}
+					
 				break;
 
 			case MotionEvent.ACTION_UP:
