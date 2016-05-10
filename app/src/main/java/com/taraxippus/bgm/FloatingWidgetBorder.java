@@ -1,12 +1,15 @@
 package com.taraxippus.bgm;
 
-import android.*;
-import android.appwidget.*;
-import android.content.*;
-import android.graphics.*;
-import android.view.*;
-import android.widget.*;
-import android.util.*;
+import android.content.Context;
+import android.graphics.PixelFormat;
+import android.os.SystemClock;
+import android.util.TypedValue;
+import android.view.Gravity;
+import android.view.MotionEvent;
+import android.view.View;
+import android.view.WindowManager;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
 
 public class FloatingWidgetBorder extends FrameLayout
 {
@@ -102,13 +105,15 @@ public class FloatingWidgetBorder extends FrameLayout
 	private float initialTouchX;
 	private float initialTouchY;
 	
+	private boolean moved;
+	
 	@Override
 	public boolean onTouchEvent(MotionEvent event)
 	{
 		if (view == null)
 			return false;
 
-		switch(event.getAction())
+		switch (event.getAction())
 		{
 			case MotionEvent.ACTION_DOWN:
 				initialX = paramsF.x;
@@ -117,19 +122,20 @@ public class FloatingWidgetBorder extends FrameLayout
 				initialHeight = paramsF.height;
 				initialTouchX = event.getRawX();
 				initialTouchY = event.getRawY();
-
+				moved = false;
+				
 				this.setActiveHandle(event.getX(), event.getY());
-
-				if (this.activeHandle == -1)
-				{
-					this.setVisibility(View.INVISIBLE);
-					windowManager.removeView(this);
-				}
 					
 				break;
 
 			case MotionEvent.ACTION_UP:
 				this.setActiveHandle(-1);
+				
+				if (!moved)
+				{
+					this.setVisibility(View.INVISIBLE);
+					windowManager.removeView(this);
+				}
 				break;
 
 			case MotionEvent.ACTION_OUTSIDE:
@@ -144,7 +150,8 @@ public class FloatingWidgetBorder extends FrameLayout
 				paramsF.y = initialY;
 				paramsF.width = initialWidth;
 				paramsF.height = initialHeight;
-
+				moved = true;
+				
 				if (this.activeHandle == -1)
 				{
 					paramsF.x += (int) (event.getRawX() - initialTouchX);

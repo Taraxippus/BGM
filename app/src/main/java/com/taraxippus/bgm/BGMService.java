@@ -443,16 +443,20 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 				final Drawable thumb_hidden = new ColorDrawable(Color.TRANSPARENT);
 				view_seek.setThumb(thumb_hidden);
 				
+				if (player != null && !preparing)
+					view_seek.setMax(player.getDuration() / 1000);
+				
 				final Handler handler = new Handler();
 				new Runnable()
 					{
 						@Override
 						public void run()
 						{
-							if (player != null && view_seek.getThumb() == thumb_hidden)
+							if (player != null && !preparing && view_seek.getThumb() == thumb_hidden)
 								view_seek.setProgress(player.getCurrentPosition() / 1000);
 
-							view_seek.setSecondaryProgress(player.getCurrentPosition() / 1000);
+							if (player != null && !preparing)
+								view_seek.setSecondaryProgress(player.getCurrentPosition() / 1000);
 							
 							if (view != null)
 								handler.postDelayed(this, 1000);
@@ -479,9 +483,9 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 						public void onStopTrackingTouch(SeekBar p1)
 						{
 							view_seek.setThumb(thumb_hidden);
-							view_seek.setSecondaryProgress(player.getCurrentPosition() / 1000);
+							view_seek.setSecondaryProgress(view_seek.getProgress());
 							
-							if (player != null)
+							if (player != null && !preparing)
 								player.seekTo(view_seek.getProgress() * 1000);
 						}
 					});
@@ -995,8 +999,8 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 		releaseMediaSession();
 		
 		Notification.Builder builder = new Notification.Builder(BGMService.this)
-			.setSmallIcon(R.drawable.launcher)
-			.setContentText(titles[playlistIndex])
+			.setSmallIcon(R.drawable.alert)
+			.setContentText(Html.fromHtml(titles[playlistIndex]))
 			.setContentTitle("An error occured");
 
 		notificationManager.notify(NOTIFICATION_ID + 1, builder.build());
@@ -1036,7 +1040,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 	@Override
 	public void onSeekComplete(MediaPlayer p1)
 	{
-		if (view_seek != null)
+		if (view_seek != null && player != null && !preparing)
 		{
 			view_seek.setSecondaryProgress(player.getCurrentPosition() / 1000);
 			view_seek.setProgress(player.getCurrentPosition() / 1000);
