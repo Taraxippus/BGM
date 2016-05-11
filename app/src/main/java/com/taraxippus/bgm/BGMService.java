@@ -98,11 +98,15 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 	
 	private GLRenderer view_renderer;
 	private SurfaceView view_video;
-	private View view, view_progress, view_visualizer;
-	private ImageView button_play;
+	protected View view, view_progress, view_visualizer;
+	private TextView text_title, text_artist;
+	private ImageView button_play, button_next, button_previous;
 	private SeekBar view_seek;
 	private FloatingWidgetBorder border;
 	private LayoutParams paramsF1, paramsF2;
+	public Runnable onViewLayoutChanged;
+	
+	String playAction = ACTION_PLAY;
 	
 	@Override
 	public int onStartCommand(Intent intent, int flags, int startId)
@@ -136,6 +140,9 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 				artists = artists1;
 				
 				buildNotification(R.drawable.pause, "Pause", ACTION_PAUSE);
+				
+				if (button_next != null)
+					onViewLayoutChanged.run();
 			}
 			else
 			{
@@ -413,8 +420,21 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 				final View layout_controls = view.findViewById(R.id.layout_controls);
 				final View button_close = view.findViewById(R.id.button_close);
 				button_play = (ImageView) view.findViewById(R.id.button_play);
+				button_next = (ImageView) view.findViewById(R.id.button_next);
+				button_previous = (ImageView) view.findViewById(R.id.button_previous);
 				final TextView text_time = (TextView) view.findViewById(R.id.text_time);
 				view_seek = (SeekBar) view.findViewById(R.id.seek);
+				text_title = (TextView) view.findViewById(R.id.text_title);
+				text_artist = (TextView) view.findViewById(R.id.text_artist);
+				
+				view_video.getHolder().setFormat(PixelFormat.TRANSPARENT);
+				view_video.setZOrderMediaOverlay(true);
+				
+				if (playlistIndex > 0 && playlistIndex < titles.length)
+				{
+					text_title.setText(Html.fromHtml(titles[playlistIndex]));
+					text_artist.setText(Html.fromHtml(artists[playlistIndex]));
+				}
 				
 				if (border == null)
 				{
@@ -426,12 +446,13 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 				{
 					paramsF1 = new WindowManager.LayoutParams(
 						400,
-						300,
+						225,
 						LayoutParams.TYPE_SYSTEM_ALERT,
 						LayoutParams.FLAG_LAYOUT_NO_LIMITS | LayoutParams.FLAG_NOT_FOCUSABLE | LayoutParams.FLAG_HARDWARE_ACCELERATED,
 						PixelFormat.TRANSLUCENT);
 
 					paramsF1.gravity = Gravity.CENTER;
+					border.aspectRatio = 16 / 9F;
 				}
 				
 				windowManager.addView(view, paramsF1);
@@ -462,8 +483,35 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 								handler.postDelayed(this, 1000);
 						}
 					}.run();
-	
+				final Runnable hide = new Runnable()
+				{
+					@Override
+					public void run()
+					{
+						if (view == null || layout_controls.getVisibility() == View.INVISIBLE)
+							return;
+
+						Animation fade = AnimationUtils.loadAnimation(BGMService.this, R.anim.fade_out);
+						fade.setDuration(600);
+						fade.setAnimationListener(new Animation.AnimationListener()
+							{
+								@Override
+								public void onAnimationStart(Animation p1) {}
+
+								@Override
+								public void onAnimationEnd(Animation p1)
+								{
+									layout_controls.setVisibility(View.INVISIBLE);
+								}
+
+								@Override
+								public void onAnimationRepeat(Animation p1) {}
+							});
+						layout_controls.startAnimation(fade);
+					}
+				};
 				
+					
 				view_seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener()
 					{
 						@Override
@@ -471,12 +519,14 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 						{
 							if (text_time != null)
 								text_time.setText(StringUtils.toTime(p2));
+								
 						}
 
 						@Override
 						public void onStartTrackingTouch(SeekBar p1)
 						{
 							view_seek.setThumb(thumb);
+							handler.removeCallbacks(hide);
 						}
 
 						@Override
@@ -487,6 +537,8 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 							
 							if (player != null && !preparing)
 								player.seekTo(view_seek.getProgress() * 1000);
+								
+							handler.postDelayed(hide, 5000);
 						}
 					});
 					
@@ -497,8 +549,39 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 						public void onClick(View p1)
 						{
 							Intent intent = new Intent(getApplicationContext(), BGMService.class);
-							intent.setAction(player != null && !preparing && player.isPlaying() ? ACTION_PAUSE : ACTION_PLAY);
+							intent.setAction(playAction);
 							handleIntent(intent);
+							
+							handler.removeCallbacks(hide);
+							handler.postDelayed(hide, 5000);
+						}
+					});
+					
+				button_next.setOnClickListener(new View.OnClickListener()
+				{
+						@Override
+						public void onClick(View p1)
+						{
+							Intent intent = new Intent(getApplicationContext(), BGMService.class);
+							intent.setAction(ACTION_SKIP_NEXT);
+							handleIntent(intent);
+
+							handler.removeCallbacks(hide);
+							handler.postDelayed(hide, 5000);
+						}
+				});
+				
+				button_previous.setOnClickListener(new View.OnClickListener()
+					{
+						@Override
+						public void onClick(View p1)
+						{
+							Intent intent = new Intent(getApplicationContext(), BGMService.class);
+							intent.setAction(ACTION_SKIP_PREVIOUS);
+							handleIntent(intent);
+
+							handler.removeCallbacks(hide);
+							handler.postDelayed(hide, 5000);
 						}
 					});
 					
@@ -544,9 +627,12 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 						public void onClick(View p1)
 						{
 							layout_controls.setVisibility(View.VISIBLE);
+							layout_controls.bringToFront();
 							Animation fade = AnimationUtils.loadAnimation(BGMService.this, R.anim.fade_in);
 							fade.setDuration(300);
 							layout_controls.startAnimation(fade);
+							
+							handler.postDelayed(hide, 5000);
 						}
 					});
 				layout_controls.setOnClickListener(new View.OnClickListener()
@@ -571,6 +657,8 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 									public void onAnimationRepeat(Animation p1) {}
 								});
 							layout_controls.startAnimation(fade);
+							
+							handler.removeCallbacks(hide);
 						}
 					});
 
@@ -585,12 +673,29 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 					};
 				view.setOnLongClickListener(showBorder);
 				layout_controls.setOnLongClickListener(showBorder);
+				
+				final float small = 150 * getResources().getDisplayMetrics().density;
+				final float medium = 200 * getResources().getDisplayMetrics().density;
+				
+				onViewLayoutChanged = new Runnable()
+				{
+					@Override
+					public void run()
+					{
+						text_title.setVisibility(paramsF1.width < small ? View.GONE : View.VISIBLE);
+						text_artist.setVisibility(paramsF1.width < medium ? View.GONE : View.VISIBLE);
+						text_time.setVisibility(paramsF1.width < medium ? View.GONE : View.VISIBLE);
+						view_seek.setVisibility(paramsF1.width < small ? View.GONE : View.VISIBLE);
+						button_next.setVisibility((urls.length > 0 || shuffle) && paramsF1.width >= medium ? View.VISIBLE : View.GONE);
+						button_previous.setVisibility((urls.length > 0 || shuffle) && paramsF1.width >= medium ? View.VISIBLE : View.GONE);
+					}
+				};
 			}
 		}
 		else 
 			releaseViews();
 	}
-	
+
 	public void releaseMediaSession()
 	{
 		if (player != null)
@@ -612,6 +717,9 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 		
 		if (player != null)
 			releaseMediaSession();
+		
+			
+		notificationManager.cancel(NOTIFICATION_ID + 1);
 		
 		try
 		{
@@ -847,6 +955,8 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 	
 	private void buildNotification(final int icon, final String title, final String intentAction) 
 	{
+		playAction = intentAction;
+		
 		Notification.Action action = generateAction(icon, title, intentAction);
 		Notification.MediaStyle style = new Notification.MediaStyle();
 		
@@ -884,18 +994,12 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 		startForeground(NOTIFICATION_ID, notification);
 		
 		if (button_play != null)
-		{
 			button_play.setImageResource(icon);
-			button_play.setOnClickListener(new View.OnClickListener()
-			{
-					@Override
-					public void onClick(View p1)
-					{
-						Intent intent = new Intent(getApplicationContext(), BGMService.class);
-						intent.setAction(intentAction);
-						handleIntent(intent);
-					}
-			});
+			
+		if (text_title != null)
+		{
+			text_title.setText(Html.fromHtml(titles[playlistIndex]));
+			text_artist.setText(Html.fromHtml(artists[playlistIndex]));
 		}
 	}
 			
@@ -1065,6 +1169,8 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 				paramsB.height = paramsF.height + border.padding * 2;
 				windowManager.updateViewLayout(border, paramsB);
 			}
+			
+			onViewLayoutChanged.run();
 		}
 	}
 

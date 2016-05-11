@@ -199,7 +199,10 @@ public class FloatingWidgetBorder extends FrameLayout
 
 				windowManager.updateViewLayout(view, paramsF);
 				windowManager.updateViewLayout(this, paramsB);
-
+				
+				if (((BGMService) getContext()).view == view)
+					((BGMService) getContext()).onViewLayoutChanged.run();
+					
 				break;
 		}
 		

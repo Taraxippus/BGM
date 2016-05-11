@@ -43,8 +43,8 @@
 			android:paddingLeft="8dp"
 			android:paddingRight="8dp"
 			android:textColor="?android:attr/textColorPrimary"
-			android:textStyle="bold"
-			android:textAppearance="?android:attr/textAppearanceMedium" />
+			android:textAppearance="?android:attr/textAppearanceMedium"
+			android:textStyle="bold" />
 		
 		<TextView 
 			android:id="@+id/text_artist"

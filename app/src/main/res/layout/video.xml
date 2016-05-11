@@ -27,11 +27,34 @@
 		android:layout_height="match_parent"
 		android:background="#AA000000" 
 		android:visibility="invisible"
-		android:clipChildren="false">
+		android:elevation="2dp" >
+		
+		<TextView 
+			android:id="@+id/text_title"
+			android:layout_width="match_parent"
+			android:layout_height="wrap_content"
+			android:paddingTop="4dp"
+			android:paddingLeft="8dp"
+			android:paddingRight="32dp"
+			android:lines="1"
+			android:textColor="?android:attr/textColorPrimary"
+			android:textStyle="bold"
+			android:ellipsize="end" />
+		
+		<TextView 
+			android:id="@+id/text_artist"
+			android:layout_width="match_parent"
+			android:layout_height="wrap_content"
+			android:paddingTop="22dp"
+			android:paddingLeft="8dp" 
+			android:paddingRight="32dp"
+			android:lines="1"
+			android:ellipsize="end"
+			android:textSize="11sp" />
 		
 		<ImageView
 			android:id="@+id/button_close"
-			android:padding="2dp"
+			android:padding="4dp"
 			android:layout_width="wrap_content"
 			android:layout_height="wrap_content"
 			android:layout_gravity="top|right"
@@ -40,8 +63,18 @@
 			android:src="@drawable/close"/>
 		
 		<ImageView
+			android:id="@+id/button_previous"
+			android:layout_marginRight="40dp"
+			android:layout_width="32dp"
+			android:layout_height="32dp"
+			android:layout_gravity="center"
+			android:adjustViewBounds="true"
+			android:clickable="true"
+			android:background="?android:attr/selectableItemBackgroundBorderless"
+			android:src="@drawable/skip_previous"/>
+		
+		<ImageView
 			android:id="@+id/button_play"
-			android:layout_margin="4dp"
 			android:layout_width="48dp"
 			android:layout_height="48dp"
 			android:layout_gravity="center"
@@ -49,6 +82,17 @@
 			android:clickable="true"
 			android:background="?android:attr/selectableItemBackgroundBorderless"
 			android:src="@drawable/play"/>
+		
+		<ImageView
+			android:id="@+id/button_next"
+			android:layout_marginLeft="40dp"
+			android:layout_width="32dp"
+			android:layout_height="32dp"
+			android:layout_gravity="center"
+			android:adjustViewBounds="true"
+			android:clickable="true"
+			android:background="?android:attr/selectableItemBackgroundBorderless"
+			android:src="@drawable/skip_next"/>
 		
 		<TextView
 			android:id="@+id/text_time"

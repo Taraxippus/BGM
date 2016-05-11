@@ -94,7 +94,7 @@
 			android:layout_height="wrap_content"
 			android:layout_gravity="left"
 			android:text="Cancel"
-			android:textColor="#FF9800"
+			android:textColor="?android:attr/colorAccent"
 			android:visibility="gone"
 		/>
 
