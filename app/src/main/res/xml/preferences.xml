@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
 
+	<Preference
+        android:key="login"
+        android:title="Log In"
+   	    android:summary="Open webbrowser to log in" />
+	
 	<CheckBoxPreference
         android:key="video"
         android:title="Video player"
@@ -24,8 +29,7 @@
 		android:entries="@array/quality"
 		android:entryValues="@array/quality"
 		android:defaultValue="High"
-		android:key="quality" 
-	/>
+		android:key="quality" />
 
 	<PreferenceCategory
 		android:title="Visualizer" >

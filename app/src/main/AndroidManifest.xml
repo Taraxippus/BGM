@@ -3,13 +3,15 @@
     package="com.taraxippus.bgm" >
 
 	<uses-feature android:glEsVersion="0x00020000" android:required="true" />
+		
 	<uses-permission android:name="android.permission.INTERNET" />
 	<uses-permission android:name="android.permission.WAKE_LOCK" />
 	<uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 	<uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 	<uses-permission android:name="android.permission.RECORD_AUDIO" />
-		
+	<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+	
     <application
         android:allowBackup="true"
         android:icon="@drawable/launcher"
@@ -45,26 +47,42 @@
 				<data android:host="www.youtube.com"/>
 				<data android:host="youtu.be"/>
 			</intent-filter>
+        </activity>
+		
+		<activity 
+			android:name=".AddToQueueActivity"
+			android:label="Add To Queue"
+			android:theme="@android:style/Theme.NoDisplay"
+			android:excludeFromRecents="true"
+			android:noHistory="true"
+			android:taskAffinity="">
 			
+			<intent-filter>
+				<action android:name="android.intent.action.SEND" />
+				<data android:mimeType="text/plain" />
+				<category android:name="android.intent.category.DEFAULT" />
+			</intent-filter>
         </activity>
 		
 		<activity
 			android:name=".PreferenceActivity" 
 			android:label="Preferences"
-			android:parentActivityName=".MainActivity"
 			android:theme="@style/PreferenceTheme" >
+
+			<intent-filer>
+				<action android:name="android.intent.action.MAIN" />
+				<category android:name="android.intent.category.NOTIFICATION_PREFERENCES" />
+			</intent-filer>
+		</activity>
+		
+		<activity
+			android:name=".WebViewActivity" 
+			android:label="BGM" 
+			android:parentActivityName=".MainActivity" >
 
 			<meta-data
 				android:name="android.support.PARENT_ACTIVITY"
 				android:value=".MainActivity" />
-
-			<intent-filer>
-				<action android:name=".PreferenceActivity" />
-				<category android:name="android.intent.category.PREFERENCE" />
-			</intent-filer>
-
 		</activity>
-		
     </application>
-
 </manifest>

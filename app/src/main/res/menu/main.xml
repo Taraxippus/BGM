@@ -20,6 +20,10 @@
 		android:icon="@drawable/youtube" />
 	
 	<item
+        android:id="@+id/item_download"
+        android:title="Download" />
+	
+	<item
         android:id="@+id/item_add"
         android:title="Add to queue"
 		android:icon="@drawable/add" />

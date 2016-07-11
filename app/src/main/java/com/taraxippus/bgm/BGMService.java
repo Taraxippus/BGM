@@ -37,18 +37,13 @@ import android.view.animation.AnimationUtils;
 import android.widget.ImageView;
 import android.widget.SeekBar;
 import android.widget.TextView;
+import android.widget.Toast;
+import com.taraxippus.bgm.MainActivity;
 import com.taraxippus.bgm.StringUtils;
 import com.taraxippus.bgm.gl.ConfigChooser;
 import com.taraxippus.bgm.gl.GLRenderer;
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
 import java.net.URLDecoder;
 import java.util.Random;
-import org.apache.http.HttpEntity;
-import org.apache.http.HttpResponse;
-import org.apache.http.client.HttpClient;
-import org.apache.http.client.methods.HttpGet;
-import org.apache.http.impl.client.DefaultHttpClient;
 
 public class BGMService extends Service implements MediaPlayer.OnPreparedListener, MediaPlayer.OnErrorListener, MediaPlayer.OnCompletionListener, MediaPlayer.OnVideoSizeChangedListener, AudioManager.OnAudioFocusChangeListener, MediaPlayer.OnSeekCompleteListener, SharedPreferences.OnSharedPreferenceChangeListener
 {
@@ -120,7 +115,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 			notificationManager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
 		}
 			
-		if (intent != null && intent.hasExtra("urls"))
+		if (intent != null && intent.hasExtra("urls") && (url == null || !intent.hasExtra("savedState")))
 		{
 			if (intent.getBooleanExtra("add", false) && urls != null)
 			{
@@ -156,27 +151,23 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 				urls = intent.getStringArrayExtra("urls");
 				titles = intent.getStringArrayExtra("titles");
 				artists = intent.getStringArrayExtra("artists");
-				time = intent.getIntExtra("time", -1) * 1000;
+				if (urls.length == 1)
+					time = intent.getIntExtra("time", -1) * 1000;
 				playlistIndex = intent.getIntExtra("index", 0);
 				
 				buildNotification(R.drawable.load, "Loading", ACTION_PLAY);
 				
-				if (nextSongTask != null)
-					nextSongTask.cancel(true);
-
-				nextSongTask = new NextSongTask();
-				nextSongTask.execute(urls[playlistIndex]);
+				url = "";
+				initViews();
+				initVisualizerView();
 			}
-			
-			initViews();
-			initVisualizerView();
 		}
-		else if (url == null || url.isEmpty())
+		else if (url == null)
 		{
 			stopSelf();
 			return -1;
 		}
-		
+			
 		if (player == null)
 			initMediaSession();
 		
@@ -250,14 +241,14 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 						{
 							releaseVisualizerViews();
 							
-							Intent intent = new Intent(getApplicationContext(), BGMService.class);
+							Intent intent = new Intent(BGMService.this, BGMService.class);
 							intent.setAction(ACTION_VISUALIZER);
 
 							Notification.Builder builder = new Notification.Builder(BGMService.this)
 								.setSmallIcon(R.drawable.launcher)
 								.setContentText("Click to show again")
 								.setContentTitle("Closed visualizer")
-								.setContentIntent(PendingIntent.getService(getApplicationContext(), 0, intent, 0));
+								.setContentIntent(PendingIntent.getService(BGMService.this, 0, intent, 0));
 
 							notificationManager.notify(NOTIFICATION_ID + 3, builder.build());
 						}		
@@ -289,14 +280,14 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 								});
 							layout_controls.startAnimation(fade);
 							
-							Intent intent = new Intent(getApplicationContext(), BGMService.class);
+							Intent intent = new Intent(BGMService.this, BGMService.class);
 							intent.setAction(ACTION_VISUALIZER_UNPIN);
 
 							Notification.Builder builder = new Notification.Builder(BGMService.this)
 								.setSmallIcon(R.drawable.launcher)
 								.setContentText("Click to unpin")
 								.setContentTitle("Pinned visualizer")
-								.setContentIntent(PendingIntent.getService(getApplicationContext(), 0, intent, 0));
+								.setContentIntent(PendingIntent.getService(BGMService.this, 0, intent, 0));
 
 							notificationManager.notify(NOTIFICATION_ID + 3, builder.build());
 						}		
@@ -548,7 +539,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 						@Override
 						public void onClick(View p1)
 						{
-							Intent intent = new Intent(getApplicationContext(), BGMService.class);
+							Intent intent = new Intent(BGMService.this, BGMService.class);
 							intent.setAction(playAction);
 							handleIntent(intent);
 							
@@ -562,7 +553,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 						@Override
 						public void onClick(View p1)
 						{
-							Intent intent = new Intent(getApplicationContext(), BGMService.class);
+							Intent intent = new Intent(BGMService.this, BGMService.class);
 							intent.setAction(ACTION_SKIP_NEXT);
 							handleIntent(intent);
 
@@ -576,7 +567,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 						@Override
 						public void onClick(View p1)
 						{
-							Intent intent = new Intent(getApplicationContext(), BGMService.class);
+							Intent intent = new Intent(BGMService.this, BGMService.class);
 							intent.setAction(ACTION_SKIP_PREVIOUS);
 							handleIntent(intent);
 
@@ -608,14 +599,14 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 						{
 							releaseViews();
 							
-							Intent intent = new Intent(getApplicationContext(), BGMService.class);
+							Intent intent = new Intent(BGMService.this, BGMService.class);
 							intent.setAction(ACTION_VIDEO);
 							
 							Notification.Builder builder = new Notification.Builder(BGMService.this)
 								.setSmallIcon(R.drawable.launcher)
 								.setContentText("Click to show again")
 								.setContentTitle("Closed video player")
-								.setContentIntent(PendingIntent.getService(getApplicationContext(), 0, intent, 0));
+								.setContentIntent(PendingIntent.getService(BGMService.this, 0, intent, 0));
 
 							notificationManager.notify(NOTIFICATION_ID + 2, builder.build());
 						}		
@@ -686,10 +677,11 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 						text_artist.setVisibility(paramsF1.width < medium ? View.GONE : View.VISIBLE);
 						text_time.setVisibility(paramsF1.width < medium ? View.GONE : View.VISIBLE);
 						view_seek.setVisibility(paramsF1.width < small ? View.GONE : View.VISIBLE);
-						button_next.setVisibility((urls.length > 0 || shuffle) && paramsF1.width >= medium ? View.VISIBLE : View.GONE);
-						button_previous.setVisibility((urls.length > 0 || shuffle) && paramsF1.width >= medium ? View.VISIBLE : View.GONE);
+						button_next.setVisibility((urls.length > 1 || shuffle) && paramsF1.width >= medium ? View.VISIBLE : View.GONE);
+						button_previous.setVisibility((urls.length > 1 || shuffle) && paramsF1.width >= medium ? View.VISIBLE : View.GONE);
 					}
 				};
+				onViewLayoutChanged.run();
 			}
 		}
 		else 
@@ -712,13 +704,30 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 
 	public void initMediaSession()
 	{
-		if (url == null)
+		if (url == null || url.isEmpty())
+		{
+			if (urls != null && urls.length > 0)
+			{
+				if (playlistIndex < 0)
+					playlistIndex = 0;
+				if (playlistIndex >= urls.length)
+					playlistIndex = urls.length - 1;
+				
+				if (nextSongTask != null)
+					nextSongTask.cancel(true);
+
+				nextSongTask = new NextSongTask();
+				nextSongTask.execute(urls[playlistIndex]);
+				
+				buildNotification(R.drawable.load, "Loading", ACTION_PLAY);
+			}
+			
 			return;
-		
+		}
+			
 		if (player != null)
 			releaseMediaSession();
 		
-			
 		notificationManager.cancel(NOTIFICATION_ID + 1);
 		
 		try
@@ -732,7 +741,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 			player.setOnVideoSizeChangedListener(this);
 			player.setOnSeekCompleteListener(this);
 			player.setWakeMode(this, PowerManager.PARTIAL_WAKE_LOCK);
-			player.setLooping(urls.length == 0 && repeat);
+			player.setLooping(urls.length == 1 && repeat);
 
 			if (view != null && view_video.getHolder().getSurface() != null && view_video.getHolder().getSurface().isValid())
 				player.setDisplay(view_video.getHolder());
@@ -744,7 +753,8 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 		{
 			System.out.println("Something is wrong with url: " + url);
 			e.printStackTrace();
-			stopSelf();
+			url = "";
+			initMediaSession();
 			
 			return;
 		}
@@ -804,7 +814,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 					@Override
 					public void onSkipToNext() 
 					{
-						if (urls.length > 1 || shuffle)
+						if (urls.length > 1 && (playlistIndex + 1 != urls.length || repeat) || shuffle)
 						{
 							releaseMediaSession();
 							
@@ -818,41 +828,32 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 									playlistIndex = random.nextInt(urls.length);
 
 								else if (playlistIndex + 1 == urls.length)
-									if (repeat)
-										playlistIndex = 0;
-									else
-									{
-										if (player != null && !preparing)
-										{
-											player.seekTo(0);
-											controller.getTransportControls().pause();
-										}
-
-										return;
-									}
+									playlistIndex = 0;
+									
 								else
 									playlistIndex++;
 								
 							}
 						
-							if (nextSongTask != null)
-								nextSongTask.cancel(true);
+							url = "";
+							initMediaSession();
+						}
+						else if (!repeat)
+						{
+							if (!preparing && player != null && player.isPlaying())
+							{
+								player.seekTo(0);
 
-							nextSongTask = new NextSongTask();
-							nextSongTask.execute(urls[playlistIndex]);
-						}
-						else if (!preparing && player != null && player.isPlaying())
-						{
-							player.seekTo(0);
-								
-							controller.getTransportControls().pause();
-						}
-						else if (!preparing)
-						{
-							if (wifiLock.isHeld())
-								wifiLock.release();
-							
-							buildNotification(R.drawable.play, "Play", ACTION_PLAY);
+								controller.getTransportControls().pause();
+								buildNotification(R.drawable.play, "Play", ACTION_PLAY);
+							}
+							else if (!preparing)
+							{
+								if (wifiLock.isHeld())
+									wifiLock.release();
+
+								buildNotification(R.drawable.play, "Play", ACTION_PLAY);
+							}
 						}
 					}
 
@@ -881,11 +882,8 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 							
 							releaseMediaSession();
 
-							if (nextSongTask != null)
-								nextSongTask.cancel(true);
-
-							nextSongTask = new NextSongTask();
-							nextSongTask.execute(urls[playlistIndex]);
+							url = "";
+							initMediaSession();
 						}
 					}
 
@@ -947,9 +945,17 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 	
 	private Notification.Action generateAction(int icon, String title, String intentAction) 
 	{
-		Intent intent = new Intent(getApplicationContext(), BGMService.class);
+		Intent intent = new Intent(this, BGMService.class);
 		intent.setAction(intentAction);
-		PendingIntent pendingIntent = PendingIntent.getService(getApplicationContext(), 0, intent, 0);
+		intent.putExtra("repeat", repeat);
+		intent.putExtra("shuffle", shuffle);
+		intent.putExtra("urls", urls);
+		intent.putExtra("titles", titles);
+		intent.putExtra("artists", artists);
+		intent.putExtra("time", time / 1000);
+		intent.putExtra("index", playlistIndex);
+		intent.putExtra("savedState", true);
+		PendingIntent pendingIntent = PendingIntent.getService(this, 0, intent, 0);
 		return new Notification.Action.Builder(icon, title, pendingIntent).build();
 	}
 	
@@ -960,14 +966,14 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 		Notification.Action action = generateAction(icon, title, intentAction);
 		Notification.MediaStyle style = new Notification.MediaStyle();
 		
-		Intent intent = new Intent(getApplicationContext(), BGMService.class);
+		Intent intent = new Intent(this, BGMService.class);
 		intent.setAction(ACTION_OPEN);
 		
 		Notification.Builder builder = new Notification.Builder(this)
             .setSmallIcon(R.drawable.launcher)
             .setContentTitle(Html.fromHtml(titles[playlistIndex]))
             .setContentText(Html.fromHtml(artists[playlistIndex]))
-			.setContentIntent(PendingIntent.getService(getApplicationContext(), 0, intent, 0))
+			.setContentIntent(PendingIntent.getService(this, 0, intent, 0))
             .setStyle(style)
 			.setShowWhen(false);
 
@@ -976,19 +982,27 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 			builder.addAction(generateAction(R.drawable.skip_previous, "Skip to previous", ACTION_SKIP_PREVIOUS));
 			builder.addAction(action);
 			builder.addAction(generateAction(R.drawable.skip_next, "Skip to next", ACTION_SKIP_NEXT));
-			builder.addAction(generateAction(R.drawable.stop, "Stop", ACTION_STOP));
 		}
 		else
 		{
 			builder.addAction(generateAction(R.drawable.rewind, "Rewind", ACTION_REWIND));
 			builder.addAction(action);
 			builder.addAction(generateAction(R.drawable.fast_forward, "Fast Forward", ACTION_FAST_FORWARD));
-			builder.addAction(generateAction(R.drawable.stop, "Stop", ACTION_STOP));
 		}
 	
+		builder.addAction(generateAction(R.drawable.stop, "Stop", ACTION_STOP));
+		
+		if (session != null)
+			style.setMediaSession(session.getSessionToken());
+			
 		style.setShowActionsInCompactView(1);
 		
 		Notification notification = builder.build();
+		
+		final PendingIntent preferenceIntent = PendingIntent.getActivity(this, 0, new Intent(this, PreferenceActivity.class), 0);
+		
+		notification.contentView.setOnClickPendingIntent(android.R.id.icon, preferenceIntent);
+		notification.bigContentView.setOnClickPendingIntent(android.R.id.icon, preferenceIntent);
 		
 		notificationManager.notify(NOTIFICATION_ID, notification);
 		startForeground(NOTIFICATION_ID, notification);
@@ -1035,7 +1049,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 		{
 			Intent intent1 = new Intent(this, MainActivity.class);
 			intent1.setAction(Intent.ACTION_SEND);
-			intent1.putExtra(Intent.EXTRA_TEXT, urls[playlistIndex] + (player != null ? "&t=" + StringUtils.toUrlTime((player.getCurrentPosition()) / 1000) : ""));
+			intent1.putExtra(Intent.EXTRA_TEXT, urls[playlistIndex] + (player != null ? (urls[playlistIndex].contains("?") ? "&t=" : "?t=") + StringUtils.toUrlTime((player.getCurrentPosition()) / 1000) : ""));
 			intent1.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
 			startActivity(intent1);
 		}
@@ -1068,6 +1082,10 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 	@Override
 	public void onDestroy()
 	{
+		notificationManager.cancel(NOTIFICATION_ID + 1);
+		notificationManager.cancel(NOTIFICATION_ID + 2);
+		notificationManager.cancel(NOTIFICATION_ID + 3);
+		
 		releaseMediaSession();
 		releaseViews();
 		releaseVisualizerViews();
@@ -1082,11 +1100,6 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 			wifiLock.release();
 		
 		PreferenceManager.getDefaultSharedPreferences(this).unregisterOnSharedPreferenceChangeListener(this);
-			
-		notificationManager.cancel(NOTIFICATION_ID);
-		notificationManager.cancel(NOTIFICATION_ID + 1);
-		notificationManager.cancel(NOTIFICATION_ID + 2);
-		notificationManager.cancel(NOTIFICATION_ID + 3);
 		
 		super.onDestroy();
 	}
@@ -1100,7 +1113,10 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 		
 		if (wifiLock.isHeld())
 			wifiLock.release();
+			
+		time = player.getCurrentPosition();
 		releaseMediaSession();
+		url = "";
 		
 		Notification.Builder builder = new Notification.Builder(BGMService.this)
 			.setSmallIcon(R.drawable.alert)
@@ -1126,10 +1142,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 		controller.getTransportControls().play();
 		if (time > 0)
 		{
-			if (urls.length == 1)
-			{
-				player.seekTo(time);
-			}
+			player.seekTo(time);
 				
 			time = -1;
 		}
@@ -1180,6 +1193,8 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 		if (!PreferenceManager.getDefaultSharedPreferences(this).getBoolean("audioFocus", true))
 			return;
 		
+		wasPlaying = false;
+		
 		switch (focusChange)
 		{
 			case AudioManager.AUDIOFOCUS_GAIN:
@@ -1189,8 +1204,12 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 				else if (!preparing && !player.isPlaying() && wasPlaying)
 					controller.getTransportControls().play();
 					
-				float volume = PreferenceManager.getDefaultSharedPreferences(this).getFloat("volume", 1);
-				player.setVolume(volume, volume);
+				if (player != null)
+				{
+					float volume = PreferenceManager.getDefaultSharedPreferences(this).getFloat("volume", 1);
+					player.setVolume(volume, volume);
+				}
+				
 				break;
 
 			case AudioManager.AUDIOFOCUS_LOSS:
@@ -1219,7 +1238,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 				{
 					if (player.isPlaying())
 					{
-						volume = PreferenceManager.getDefaultSharedPreferences(this).getFloat("volume", 1);
+						float volume = PreferenceManager.getDefaultSharedPreferences(this).getFloat("volume", 1);
 						player.setVolume(volume * 0.1F, volume * 0.1F);
 					}
 
@@ -1255,30 +1274,11 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 				
 			try
 			{
-				HttpClient httpclient = new DefaultHttpClient(); 
-				HttpGet httpget = new HttpGet(p1[0]);
-				HttpResponse response = httpclient.execute(httpget); 
-				HttpEntity entity = response.getEntity();
-
+				String page = NetworkHelper.getPage(p1[0]);
+				
 				if (isCancelled())
 					return null;
-					
-				BufferedReader reader = new BufferedReader(new InputStreamReader(entity.getContent()));
-
-				StringBuilder sb = new StringBuilder();
-
-				String line;
-				while ((line = reader.readLine()) != null)
-				{
-					if (isCancelled())
-						return null;
-					
-					sb.append(line);
-				}
-
-				reader.close();
-
-				String page = sb.toString();
+				
 				int index0, index1, index2;
 				
 				index0 = page.indexOf("class=\"video-list-item related-list-item show-video-time\"");
@@ -1304,12 +1304,27 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 				if (index2 != -1)
 					titles[playlistIndex] = page.substring(index1 + 1, index2);
 				
+//				index2 = 0;
+//				do
+//				{
+//					index1 = page.indexOf("url=", index2);
+//					index2 = index1 == -1 ? -1 : page.indexOf(",", index1);
+//					index0 = index1 == -1 ? -1 : page.indexOf("\\u0026", index1);
+//					index2 = index2 == -1 ? index0 : index0 == -1 ? index2 : Math.min(index0, index2);
+//					
+//					if (index2 != -1)
+//						System.out.println(URLDecoder.decode(page.substring(index1 + 4, index2)).toString());
+//				}
+//				while (index2 != -1);
+					
 				index0 = page.indexOf("quality=" + PreferenceManager.getDefaultSharedPreferences(BGMService.this).getString("quality", "High").toLowerCase());
+				
 				index0 = index0 == -1 ? page.indexOf("quality=") : index0;
 				index1 = index0 == -1 ? -1 : page.indexOf("url=", index0);
 				index2 = index1 == -1 ? -1 : page.indexOf(",", index1);
 				index0 = index1 == -1 ? -1 : page.indexOf("\\u0026", index1);
 				index2 = index2 == -1 ? index0 : index0 == -1 ? index2 : Math.min(index0, index2);
+				
 				
 				if (index2 != -1)
 				{
@@ -1340,7 +1355,10 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 			else
 			{
 				System.err.println("Couldn't find next song");
-				controller.getTransportControls().skipToNext();
+				Toast.makeText(BGMService.this, "BGM skipped a song, because it wasn't available :/", Toast.LENGTH_SHORT).show();
+				
+				if (controller != null)
+					controller.getTransportControls().skipToNext();
 			}
 		}
 	}

@@ -3,6 +3,7 @@ package com.taraxippus.bgm;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.DialogInterface;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.PorterDuff;
@@ -17,6 +18,7 @@ import android.widget.EditText;
 import android.widget.SeekBar;
 import android.widget.TextView;
 import com.taraxippus.bgm.R;
+import android.webkit.WebView;
 
 public class PreferenceActivity extends Activity
 {
@@ -41,6 +43,16 @@ public class PreferenceActivity extends Activity
 			super.onCreate(savedInstanceState);
 
 			addPreferencesFromResource(R.xml.preferences);
+			
+			findPreference("login").setOnPreferenceClickListener(new Preference.OnPreferenceClickListener()
+			{
+					@Override
+					public boolean onPreferenceClick(Preference p1)
+					{
+						startActivity(new Intent(getActivity(), WebViewActivity.class));
+						return true;
+					}
+			});
 			
 			chooseValue("volume", "Volume", "", 0, 1, 20, 1);
 			chooseColor("color", "#FFFFFF");

@@ -1,7 +1,12 @@
 package com.taraxippus.bgm;
 
 import android.app.Activity;
+import android.app.AlertDialog;
+import android.app.DownloadManager;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -13,6 +18,7 @@ import android.net.ConnectivityManager;
 import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
+import android.os.Environment;
 import android.preference.PreferenceManager;
 import android.support.v7.widget.LinearLayoutManager;
 import android.support.v7.widget.RecyclerView;
@@ -29,6 +35,7 @@ import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
+import android.webkit.CookieSyncManager;
 import android.widget.Button;
 import android.widget.ImageButton;
 import android.widget.ImageView;
@@ -40,18 +47,12 @@ import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.ViewSwitcher;
 import com.taraxippus.bgm.R;
-import java.io.BufferedReader;
 import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.net.URL;
+import java.net.URLDecoder;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import org.apache.http.HttpEntity;
-import org.apache.http.HttpResponse;
-import org.apache.http.client.HttpClient;
-import org.apache.http.client.methods.HttpGet;
-import org.apache.http.impl.client.DefaultHttpClient;
 
 public class MainActivity extends Activity 
 {
@@ -87,6 +88,8 @@ public class MainActivity extends Activity
     {
         super.onCreate(savedInstanceState);
        	setContentView(R.layout.main);
+		
+		CookieSyncManager.createInstance(this);
 		
 		progress = (ProgressBar) findViewById(R.id.progress);
 		seek = (SeekBar) findViewById(R.id.seek);
@@ -228,7 +231,7 @@ public class MainActivity extends Activity
 											PreferenceManager.getDefaultSharedPreferences(MainActivity.this).edit().putBoolean("video", item.isChecked()).apply();
 											return true;
 										
-											case R.id.item_visualizer:
+										case R.id.item_visualizer:
 											item.setChecked(!item.isChecked());
 											PreferenceManager.getDefaultSharedPreferences(MainActivity.this).edit().putBoolean("visualizer", item.isChecked()).apply();
 											return true;
@@ -239,6 +242,53 @@ public class MainActivity extends Activity
 											
 										case R.id.item_view:
 											startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(!playlist ? (url.contains("?") ? url + "&" : url + "?") + "t=" + StringUtils.toUrlTime(seek.getProgress()) : url)));
+											return true;
+											
+										case R.id.item_download:
+											final ArrayList<CharSequence> items = new ArrayList<>();
+											final ArrayList<CharSequence> downloadURLs = new ArrayList<>();
+											
+											int index0, index1, index2, index3 = 0;
+											
+											while (true)
+											{
+												index3 = index0 = page.indexOf("quality=", index3 + 1);
+												
+												if (index0 == -1)
+													break;
+												
+												index1 = page.indexOf("url=", index0);
+												index2 = index1 == -1 ? -1 : page.indexOf(",", index1);
+												index0 = index1 == -1 ? -1 : page.indexOf("\\u0026", index1);
+												index2 = index2 == -1 ? index0 : index0 == -1 ? index2 : Math.min(index0, index2);
+												
+												downloadURLs.add(URLDecoder.decode(page.substring(index1 + 4, index2)));
+												
+												index0 = page.indexOf("quality_label=", index3);
+												index1 = page.indexOf("\\u0026", index0);
+												index2 = page.indexOf(",", index0);
+												index2 = index2 == -1 ? index1 : index1 == -1 ? index2 : Math.min(index1, index2);
+
+												items.add(page.substring(index0 + 14, index2));
+											}
+											
+											AlertDialog.Builder builder = new AlertDialog.Builder(MainActivity.this);
+											builder.setTitle("Choose quality");
+											builder.setItems(items.toArray(new CharSequence[items.size()]), new DialogInterface.OnClickListener()
+												{
+													public void onClick(DialogInterface dialog, int which) 
+													{
+														DownloadManager.Request r = new DownloadManager.Request(Uri.parse(downloadURLs.get(which).toString()));
+
+														r.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, Html.fromHtml(title).toString());
+														r.allowScanningByMediaScanner();
+														r.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+													
+														DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+														dm.enqueue(r);
+													}
+												});
+											builder.show();
 											return true;
 											
 										case R.id.item_add:
@@ -300,7 +350,6 @@ public class MainActivity extends Activity
 				
 			new ParsePageTask().execute(url);
 		}
-		
     }
 	
 	public void startService(boolean shuffle, boolean repeat, boolean add)
@@ -360,24 +409,7 @@ public class MainActivity extends Activity
 					if (index0 != -1)
 						playlistIndex = Integer.parseInt(url.substring(index0 + 6, index1 == -1 ? url.length() : index1));
 					
-					HttpClient httpclient = new DefaultHttpClient(); 
-					HttpGet httpget = new HttpGet(url);
-					HttpResponse response = httpclient.execute(httpget); 
-					HttpEntity entity = response.getEntity();
-
-					BufferedReader reader = new BufferedReader(new InputStreamReader(entity.getContent()));
-
-					StringBuilder sb = new StringBuilder();
-
-					String line;
-					while ((line = reader.readLine()) != null)
-					{
-						sb.append(line);
-					}
-
-					reader.close();
-
-					page = sb.toString();
+					page = NetworkHelper.getPage(url);
 					
 					int index3 = 0;
 					if (playListSite)
@@ -506,26 +538,8 @@ public class MainActivity extends Activity
 					time = StringUtils.fromUrlTime(url.substring(index0 + 2, index1 == -1 ? url.length() : index1));
 			
 				url = "https://www.youtube.com/watch?v=" + id + "&gl=US";
-					
-				HttpClient httpclient = new DefaultHttpClient(); 
-				HttpGet httpget = new HttpGet(url);
-				HttpResponse response = httpclient.execute(httpget); 
-				HttpEntity entity = response.getEntity();
-
-				BufferedReader reader = new BufferedReader(new InputStreamReader(entity.getContent()));
-
-				StringBuilder sb = new StringBuilder();
-
-				String line;
-				while ((line = reader.readLine()) != null)
-				{
-					sb.append(line);
-				}
-
-				reader.close();
-
-				page = sb.toString();
-
+				page = NetworkHelper.getPage(url);
+				
 				index0 = page.indexOf("class=\"yt-user-info\"");
 				index1 = index0 == -1 ? -1 : page.indexOf(">", index0 + 35);
 				index2 = index1 == -1 ? -1 : page.indexOf("</a>", index1);
@@ -675,8 +689,6 @@ public class MainActivity extends Activity
 					text_title.setText(Html.fromHtml(playlistTitle));
 					text_artist.setText("Playlist");
 					text_description.setText(titles.size() + (loadMore ? "+" : "") + (titles.size() == 1 ? " video" : " videos"));
-					
-					new LoadImageTask().execute();
 				}
 				else
 				{
@@ -795,23 +807,23 @@ public class MainActivity extends Activity
 		return bitmap;
 	}
 	
-	public class LoadImageTask extends AsyncTask<Void, Void, Void>
+	public class LoadImageTask extends AsyncTask<String, Void, Void>
 	{
 		@Override
-		protected Void doInBackground(Void[] p1)
+		protected Void doInBackground(String... ids1)
 		{
-			for (int i = 0; i < ids.size(); ++i)
+			for (int i = 0; i < ids1.length; ++i)
 			{
-				if (bitmap_cache.get(ids.get(i)) != null)
+				if (bitmap_cache.get(ids1[i]) != null)
 					continue;
 					
 				try
 				{
-					InputStream in = new URL("https://i.ytimg.com/vi/" + ids.get(i) + "/mqdefault.jpg").openStream();
-					bitmap_cache.put(ids.get(i), Bitmap.createBitmap(BitmapFactory.decodeStream(in)));
+					InputStream in = new URL("https://i.ytimg.com/vi/" + ids1[i] + "/mqdefault.jpg").openStream();
+					bitmap_cache.put(ids1[i], Bitmap.createBitmap(BitmapFactory.decodeStream(in)));
 					in.close();
 
-					MainActivity.this.runOnUiThread(new UpdateRunnable(i + 1));
+					MainActivity.this.runOnUiThread(new UpdateRunnable(ids.indexOf(ids1[i]) + 1));
 				}
 				catch (Exception e)
 				{
@@ -869,6 +881,9 @@ public class MainActivity extends Activity
 									public boolean onMenuItemClick(MenuItem item)
 									{
 										int index = recycler.getChildAdapterPosition(itemView);
+										
+										if (index < 0)
+											return false;
 										
 										Intent intent;
 										switch (item.getItemId())
@@ -1061,8 +1076,12 @@ public class MainActivity extends Activity
 
 				v.title.setText(Html.fromHtml(titles.get(index - 1)));
 				v.artist.setText(Html.fromHtml(artists.get(index - 1)));
+				
 				if (bitmap_cache.get(ids.get(index - 1)) == null)
+				{
 					v.image.setImageResource(R.drawable.launcher);
+					new LoadImageTask().execute(ids.get(index - 1));
+				}
 				else
 					v.image.setImageBitmap(bitmap_cache.get(ids.get(index - 1)));
 				
@@ -1162,23 +1181,7 @@ public class MainActivity extends Activity
 		{
 			try
 			{
-				HttpClient httpclient = new DefaultHttpClient(); 
-				HttpGet httpget = new HttpGet(loadMoreUrl);
-				HttpResponse response = httpclient.execute(httpget); 
-				HttpEntity entity = response.getEntity();
-
-				BufferedReader reader = new BufferedReader(new InputStreamReader(entity.getContent()));
-
-				StringBuilder sb = new StringBuilder();
-
-				String line;
-				while ((line = reader.readLine()) != null)
-				{
-					sb.append(line);
-				}
-
-				reader.close();
-				page = sb.toString();
+				page = NetworkHelper.getPage(loadMoreUrl);
 			
 				int index0, index1, index2, index3 = 0;
 				if (mix)
@@ -1285,8 +1288,6 @@ public class MainActivity extends Activity
 			
 			recycler.getAdapter().notifyDataSetChanged();
 			text_description.setText(titles.size() + (loadMore ? "+" : "") + (titles.size() == 1 ? " Video" : " Videos"));
-			
-			new LoadImageTask().execute();
 		}
 	}
 	
