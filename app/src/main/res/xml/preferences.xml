@@ -53,9 +53,16 @@
 			android:defaultValue="false" />
 		
 		<CheckBoxPreference
+			android:key="repeat"
+			android:title="Repeat"
+			android:summary="Repeat the bars"
+			android:defaultValue="false"
+			android:dependency="circle" />
+		
+		<CheckBoxPreference
 			android:key="rainbow"
 			android:title="Enable rainbow mode"
-			android:summary="Color the bars like a rainbow"
+			android:summary="Rainbow to you!"
 			android:defaultValue="false"
 			android:disableDependentsState="true" />
 		

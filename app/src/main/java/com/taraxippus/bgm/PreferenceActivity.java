@@ -44,16 +44,6 @@ public class PreferenceActivity extends Activity
 
 			addPreferencesFromResource(R.xml.preferences);
 			
-			findPreference("login").setOnPreferenceClickListener(new Preference.OnPreferenceClickListener()
-			{
-					@Override
-					public boolean onPreferenceClick(Preference p1)
-					{
-						startActivity(new Intent(getActivity(), WebViewActivity.class));
-						return true;
-					}
-			});
-			
 			chooseValue("volume", "Volume", "", 0, 1, 20, 1);
 			chooseColor("color", "#FFFFFF");
 		}

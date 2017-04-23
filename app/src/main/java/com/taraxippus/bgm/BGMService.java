@@ -17,9 +17,11 @@ import android.media.Rating;
 import android.media.audiofx.Visualizer;
 import android.media.session.MediaController;
 import android.media.session.MediaSession;
+import android.net.Uri;
 import android.net.wifi.WifiManager;
 import android.opengl.GLSurfaceView;
 import android.os.AsyncTask;
+import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.PowerManager;
@@ -34,6 +36,7 @@ import android.view.WindowManager;
 import android.view.WindowManager.LayoutParams;
 import android.view.animation.Animation;
 import android.view.animation.AnimationUtils;
+import android.webkit.WebSettings;
 import android.widget.ImageView;
 import android.widget.SeekBar;
 import android.widget.TextView;
@@ -43,7 +46,10 @@ import com.taraxippus.bgm.StringUtils;
 import com.taraxippus.bgm.gl.ConfigChooser;
 import com.taraxippus.bgm.gl.GLRenderer;
 import java.net.URLDecoder;
+import java.util.HashMap;
 import java.util.Random;
+import org.apache.http.message.BasicHeader;
+import org.json.JSONObject;
 
 public class BGMService extends Service implements MediaPlayer.OnPreparedListener, MediaPlayer.OnErrorListener, MediaPlayer.OnCompletionListener, MediaPlayer.OnVideoSizeChangedListener, AudioManager.OnAudioFocusChangeListener, MediaPlayer.OnSeekCompleteListener, SharedPreferences.OnSharedPreferenceChangeListener
 {
@@ -72,7 +78,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 	boolean shuffle;
 	
 	int playlistIndex;
-	int time = -1;
+	int time = -1, tries;
 	String[] urls;
 	String[] titles;
 	String[] artists;
@@ -86,7 +92,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 	MediaController controller;
 	
 	WifiManager.WifiLock wifiLock;
-	private static boolean preparing = true;
+	private static boolean preparing = true, removeStuttering = false;
 	
 	private WindowManager windowManager;
 	private NotificationManager notificationManager;
@@ -231,6 +237,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 					paramsF2.y = -300;
 					paramsF2.gravity = Gravity.CENTER;
 				}
+				paramsF2.flags &= ~LayoutParams.FLAG_NOT_TOUCHABLE;
 				
 				windowManager.addView(view_visualizer, paramsF2);
 				
@@ -728,13 +735,14 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 		if (player != null)
 			releaseMediaSession();
 		
-		notificationManager.cancel(NOTIFICATION_ID + 1);
-		
 		try
 		{
 			player = new MediaPlayer();
 			player.setAudioStreamType(AudioManager.STREAM_MUSIC);
-			player.setDataSource(url);
+			HashMap<String, String> headers = new HashMap<>();
+			headers.put("Origin", "https://www.youtube.com");
+			headers.put("Referer", urls[playlistIndex]);
+			player.setDataSource(this, Uri.parse(url), headers);
 			player.setOnPreparedListener(this);
 			player.setOnCompletionListener(this);
 			player.setOnErrorListener(this);
@@ -1022,6 +1030,8 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 		if (intent == null || intent.getAction() == null)
 			return;
 
+		notificationManager.cancel(NOTIFICATION_ID + 1);
+		
 		String action = intent.getAction();
 
 		if (action.equalsIgnoreCase(ACTION_PLAY))
@@ -1123,8 +1133,23 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 			.setContentText(Html.fromHtml(titles[playlistIndex]))
 			.setContentTitle("An error occured");
 
-		notificationManager.notify(NOTIFICATION_ID + 1, builder.build());
+		boolean nico = NicoHelper.isValidUrl(Uri.parse(urls[playlistIndex]));
 		
+		if (!nico || tries >= 5)
+			notificationManager.notify(NOTIFICATION_ID + 1, builder.build());
+		
+		if (tries < (nico ? 5 : 2))
+		{
+			tries++;
+			controller.getTransportControls().play();
+			
+		}
+		else
+		{
+			tries = 0;
+			controller.getTransportControls().skipToNext();
+		}
+			
 		return true;
 	}
 
@@ -1140,12 +1165,20 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 		preparing = false;
 		
 		controller.getTransportControls().play();
-		if (time > 0)
+		tries = 0;
+		
+		if (NicoHelper.isValidUrl(Uri.parse(urls[playlistIndex])))
+		{
+			player.seekTo(Math.min(50, player.getDuration() - 1));
+			removeStuttering = true;
+		}
+		else if (time > 0)
 		{
 			player.seekTo(time);
-				
 			time = -1;
 		}
+		else
+			player.seekTo(0);
 		
 		if (view_progress != null)
 			view_progress.setVisibility(View.INVISIBLE);
@@ -1157,7 +1190,18 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 	@Override
 	public void onSeekComplete(MediaPlayer p1)
 	{
-		if (view_seek != null && player != null && !preparing)
+		if (removeStuttering)
+		{
+			removeStuttering = false;
+			if (time > 0)
+			{
+				player.seekTo(time);
+				time = -1;
+			}
+			else
+				player.seekTo(0);
+		}
+		else if (view_seek != null && player != null && !preparing)
 		{
 			view_seek.setSecondaryProgress(player.getCurrentPosition() / 1000);
 			view_seek.setProgress(player.getCurrentPosition() / 1000);
@@ -1197,6 +1241,9 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 		
 		switch (focusChange)
 		{
+			case AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK:
+			case AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE:
+			case AudioManager.AUDIOFOCUS_GAIN_TRANSIENT:
 			case AudioManager.AUDIOFOCUS_GAIN:
 				if (player == null)
 					initMediaSession();
@@ -1212,6 +1259,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 				
 				break;
 
+			case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
 			case AudioManager.AUDIOFOCUS_LOSS:
 				if (!preparing && player != null)
 				{
@@ -1220,17 +1268,6 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 					if (player.isPlaying())
 						controller.getTransportControls().pause();
 				}
-				break;
-
-			case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
-				if (!preparing && player != null)
-				{
-					wasPlaying = player.isPlaying();
-					
-					if (player.isPlaying()) 
-						controller.getTransportControls().pause();
-				}
-				
 				break;
 
 			case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
@@ -1274,6 +1311,35 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 				
 			try
 			{
+				while (!NetworkHelper.isInternetAvailable(BGMService.this))
+				{
+					Thread.sleep(1000);
+					
+					if (isCancelled())
+						return null;
+				}
+				
+				Uri parsed = Uri.parse(p1[0]);
+				
+				if (NicoHelper.isValidUrl(parsed))
+				{
+					String id = NicoHelper.getId(parsed);
+					
+					if (!NicoHelper.LOGIN)
+						NicoHelper.login(BGMService.this);
+					
+					String watchApiURL = NetworkHelper.getSync(true, null, "http://api.gadget.nicovideo.jp/v2.0/video/videos/" + id + "/play?playModeCode=auto", "User-Agent", NicoHelper.USER_AGENT);
+					
+					if (watchApiURL == null)
+						return null;
+						
+					String result = StringUtils.unescapeJava(new JSONObject(NetworkHelper.getSync(true, null,  new JSONObject(watchApiURL).getString("watchApiUrl"), "User-Agent", NicoHelper.USER_AGENT)).getJSONObject("data").getString("audio_url"));
+					parsed = Uri.parse(result);
+					artists[playlistIndex] = parsed.getQueryParameter("artist");
+					titles[playlistIndex] = parsed.getQueryParameter("title");
+					
+					return result;
+				}
 				String page = NetworkHelper.getPage(p1[0]);
 				
 				if (isCancelled())
@@ -1304,32 +1370,15 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 				if (index2 != -1)
 					titles[playlistIndex] = page.substring(index1 + 1, index2);
 				
-//				index2 = 0;
-//				do
-//				{
-//					index1 = page.indexOf("url=", index2);
-//					index2 = index1 == -1 ? -1 : page.indexOf(",", index1);
-//					index0 = index1 == -1 ? -1 : page.indexOf("\\u0026", index1);
-//					index2 = index2 == -1 ? index0 : index0 == -1 ? index2 : Math.min(index0, index2);
-//					
-//					if (index2 != -1)
-//						System.out.println(URLDecoder.decode(page.substring(index1 + 4, index2)).toString());
-//				}
-//				while (index2 != -1);
-					
-				index0 = page.indexOf("quality=" + PreferenceManager.getDefaultSharedPreferences(BGMService.this).getString("quality", "High").toLowerCase());
-				
+				index0 = page.indexOf("quality=" + PreferenceManager.getDefaultSharedPreferences(BGMService.this).getString("quality", "high"));
 				index0 = index0 == -1 ? page.indexOf("quality=") : index0;
 				index1 = index0 == -1 ? -1 : page.indexOf("url=", index0);
 				index2 = index1 == -1 ? -1 : page.indexOf(",", index1);
 				index0 = index1 == -1 ? -1 : page.indexOf("\\u0026", index1);
 				index2 = index2 == -1 ? index0 : index0 == -1 ? index2 : Math.min(index0, index2);
 				
-				
 				if (index2 != -1)
-				{
 					return URLDecoder.decode(page.substring(index1 + 4, index2)).toString();
-				}
 				
 				return null;
 			}

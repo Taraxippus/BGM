@@ -146,71 +146,41 @@ public class GLRenderer implements GLSurfaceView.Renderer, Visualizer.OnDataCapt
 	{
 		SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(context);
 		
-		boolean mirrored = preferences.getBoolean("mirror", false);
+		boolean repeat = preferences.getBoolean("repeat", true);
 		boolean rainbow = preferences.getBoolean("rainbow", false);
 		boolean circle = preferences.getBoolean("circle", false);
 		
-		FloatBuffer bars_vertices = FloatBuffer.allocate(COUNT * 4 * (!circle ? 8 : 4) * (mirrored ? 2 : 1));
+		FloatBuffer bars_vertices = FloatBuffer.allocate(COUNT * 4 * (circle ? (repeat ? 12 : 4) : 8));
 
 		if (circle)
 		{
 			float radius = COUNT * (BAR_WIDTH + BAR_SPACE) / (float)Math.PI / 2F;
 			float angle, angle2;
 
-			for (int i = 0; i < COUNT; ++i)
+			for (int i = 0; i < COUNT * (repeat ? 3 : 1); ++i)
 			{
-				angle = (float)i / COUNT * (float)Math.PI * (mirrored ? 1 : 2);
-				angle2 = (i * (BAR_WIDTH + BAR_SPACE) + BAR_WIDTH) / (COUNT * (BAR_SPACE + BAR_WIDTH)) * (float)Math.PI * (mirrored ? 1 : 2);
+				angle = (float)i / COUNT * (float)Math.PI * (repeat ? 2 / 3F : 2);
+				angle2 = (i * (BAR_WIDTH + BAR_SPACE) + BAR_WIDTH) / (COUNT * (BAR_SPACE + BAR_WIDTH)) * (float)Math.PI * (repeat ? 2 / 3F : 2);
 
 				bars_vertices.put((float) Math.cos(angle) * radius);
 				bars_vertices.put(-0.5F);
 				bars_vertices.put((float) Math.sin(angle) * radius);
-				bars_vertices.put(i);
+				bars_vertices.put(i % COUNT);
 
 				bars_vertices.put((float) Math.cos(angle2) * radius);
 				bars_vertices.put(-0.5F);
 				bars_vertices.put((float) Math.sin(angle2) * radius);
-				bars_vertices.put(i);
+				bars_vertices.put(i % COUNT);
 
 				bars_vertices.put((float) Math.cos(angle) * radius);
 				bars_vertices.put(1F);
 				bars_vertices.put((float) Math.sin(angle) * radius);
-				bars_vertices.put(i);
+				bars_vertices.put(i % COUNT);
 
 				bars_vertices.put((float) Math.cos(angle2) * radius);
 				bars_vertices.put(1F);
 				bars_vertices.put((float) Math.sin(angle2) * radius);		
-				bars_vertices.put(i);
-			}
-
-			if (mirrored)
-			{
-
-				for (int i = 0; i < COUNT; ++i)
-				{
-					angle = (float)Math.PI + (float)i / COUNT * (float)Math.PI;
-					angle2 = (float)Math.PI + (i * (BAR_WIDTH + BAR_SPACE) + BAR_WIDTH) / (COUNT * (BAR_SPACE + BAR_WIDTH)) * (float)Math.PI;
-
-					bars_vertices.put((float) Math.cos(angle) * radius);
-					bars_vertices.put(-0.5F);
-					bars_vertices.put((float) Math.sin(angle) * radius);
-					bars_vertices.put(COUNT - i - 1);
-
-					bars_vertices.put((float) Math.cos(angle2) * radius);
-					bars_vertices.put(-0.5F);
-					bars_vertices.put((float) Math.sin(angle2) * radius);
-					bars_vertices.put(COUNT - i - 1);
-
-					bars_vertices.put((float) Math.cos(angle) * radius);
-					bars_vertices.put(1F);
-					bars_vertices.put((float) Math.sin(angle) * radius);
-					bars_vertices.put(COUNT - i - 1);
-
-					bars_vertices.put((float) Math.cos(angle2) * radius);
-					bars_vertices.put(1F);
-					bars_vertices.put((float) Math.sin(angle2) * radius);		
-					bars_vertices.put(COUNT - i - 1);
-				}
+				bars_vertices.put(i % COUNT);
 			}
 		}
 		else
@@ -259,9 +229,9 @@ public class GLRenderer implements GLSurfaceView.Renderer, Visualizer.OnDataCapt
 			}
 		}
 
-		ShortBuffer bars_indices = ShortBuffer.allocate(COUNT * 12 * (!circle ? 2 : 1) * (mirrored ? 2 : 1));
+		ShortBuffer bars_indices = ShortBuffer.allocate(COUNT * 12 * (circle ? (repeat ? 3 : 1) : 2));
 
-		for (int i = 0; i < COUNT * (!circle ? 2 : 1) * (mirrored ? 2 : 1); ++i)
+		for (int i = 0; i < COUNT * (circle ? (repeat ? 3 : 1) : 2); ++i)
 		{
 			bars_indices.put((short) (i * 4));	
 			bars_indices.put((short) (i * 4 + 1));	

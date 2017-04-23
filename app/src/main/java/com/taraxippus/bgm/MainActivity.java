@@ -3,9 +3,6 @@ package com.taraxippus.bgm;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.DownloadManager;
-import android.content.ClipData;
-import android.content.ClipboardManager;
-import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.graphics.Bitmap;
@@ -14,9 +11,9 @@ import android.graphics.Color;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
-import android.net.ConnectivityManager;
 import android.net.Uri;
 import android.os.AsyncTask;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.preference.PreferenceManager;
@@ -28,6 +25,7 @@ import android.text.SpannableStringBuilder;
 import android.text.method.LinkMovementMethod;
 import android.text.style.ClickableSpan;
 import android.text.style.URLSpan;
+import android.text.util.Linkify;
 import android.util.LruCache;
 import android.util.TypedValue;
 import android.view.LayoutInflater;
@@ -35,7 +33,6 @@ import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
-import android.webkit.CookieSyncManager;
 import android.widget.Button;
 import android.widget.ImageButton;
 import android.widget.ImageView;
@@ -50,9 +47,21 @@ import com.taraxippus.bgm.R;
 import java.io.InputStream;
 import java.net.URL;
 import java.net.URLDecoder;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import org.apache.http.message.BasicHeader;
+import org.json.JSONArray;
+import org.json.JSONObject;
+import android.graphics.drawable.NinePatchDrawable;
+import org.apache.http.HttpEntity;
+import org.apache.http.entity.HttpEntityWrapper;
+import org.apache.http.entity.StringEntity;
+import java.net.URLEncoder;
 
 public class MainActivity extends Activity 
 {
@@ -68,7 +77,7 @@ public class MainActivity extends Activity
 	RecyclerView recycler;
 	
 	String page, id, playListId, url, loadMoreUrl;
-	String title, artist, description;
+	String title = "", artist = "", description = "";
 	Bitmap bitmap_video;
 	Bitmap bitmap_artist;
 	int duration;
@@ -83,13 +92,18 @@ public class MainActivity extends Activity
 	List<String> artists = new ArrayList<String>();
 	LruCache<String, Bitmap> bitmap_cache;
 	
+	private static final SimpleDateFormat formatIn = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssZ");
+	private static final SimpleDateFormat formatOut = new SimpleDateFormat("MMM d, yyyy");
+	
+	Mode mode;
+	
+	private enum Mode { YOUTUBE, NICO, NONE }
+	
     @Override
     protected void onCreate(Bundle savedInstanceState)
     {
         super.onCreate(savedInstanceState);
        	setContentView(R.layout.main);
-		
-		CookieSyncManager.createInstance(this);
 		
 		progress = (ProgressBar) findViewById(R.id.progress);
 		seek = (SeekBar) findViewById(R.id.seek);
@@ -138,7 +152,7 @@ public class MainActivity extends Activity
 				}
 			});
 		
-		if (!isInternetAvailable())
+		if (!NetworkHelper.isInternetAvailable(this))
 		{
 			progress.setVisibility(View.GONE);
 			
@@ -150,10 +164,11 @@ public class MainActivity extends Activity
 			}
 			
 			button_cancel.setVisibility(View.VISIBLE);
+			return;
 		}
-		else
-		{
-			bitmap_cache = new LruCache<String, Bitmap>( (int) (Runtime.getRuntime().maxMemory() / 1024) / 4) 
+		
+			
+		bitmap_cache = new LruCache<String, Bitmap>( (int) (Runtime.getRuntime().maxMemory() / 1024) / 4) 
 			{
 				@Override
 				protected int sizeOf(String key, Bitmap bitmap) 
@@ -207,7 +222,12 @@ public class MainActivity extends Activity
 							text_title.setText(Html.fromHtml("Mix - " + title));
 							text_artist.setText("Playlist");
 							
-							url = "http://www.youtube.com/watch?v=" + id + "&list=RD" + id;
+							if (mode == Mode.YOUTUBE)
+								url = "https://www.youtube.com/watch?v=" + id + "&list=RD" + id;
+							
+							else if (mode == Mode.NICO)
+								url = "http://nico.ms/" + id + "?mix=true&title=" + URLDecoder.decode(title);
+							
 							new ParsePageTask().execute(url);
 						}
 					}
@@ -307,6 +327,8 @@ public class MainActivity extends Activity
 						
 						popup.getMenu().findItem(R.id.item_video).setChecked(PreferenceManager.getDefaultSharedPreferences(MainActivity.this).getBoolean("video", false));
 						popup.getMenu().findItem(R.id.item_visualizer).setChecked(PreferenceManager.getDefaultSharedPreferences(MainActivity.this).getBoolean("visualizer", false));
+						if (mode == Mode.NICO)
+							popup.getMenu().findItem(R.id.item_view).setTitle("View on NicoNico");
 						
 						popup.show();
 					}
@@ -347,10 +369,58 @@ public class MainActivity extends Activity
 			else
 				url = getIntent().getStringExtra(android.content.Intent.EXTRA_TEXT);
 				
+			String[] words = url.split(" |\\n");
+			
+			Uri uri = null;
+			mode = Mode.NONE;
+			for (String word : words)
+			{
+				uri = Uri.parse(word);
+				
+				if (YouTubeHelper.isValidUrl(uri))
+				{
+					mode = Mode.YOUTUBE;
+					url = word;
+					break;
+				}
+				else if (NicoHelper.isValidUrl(uri))
+				{
+					mode = Mode.NICO;
+					url = word;
+					break;
+				}
+			}
+			
+			if (mode == Mode.NONE)
+			{
+				progress.setVisibility(View.GONE);
+
+				if (layout_title != null)
+				{
+					layout_title.setVisibility(View.VISIBLE);
+					image_menu.setVisibility(View.GONE);
+					text_title.setText("Please use a valid url!");
+				}
+
+				button_cancel.setVisibility(View.VISIBLE);
+				return;
+			}
 				
 			new ParsePageTask().execute(url);
-		}
     }
+
+	final ArrayList<LoadImageTask> loadImageTasks = new ArrayList<>();
+	
+	@Override
+	protected void onDestroy()
+	{
+		super.onDestroy();
+		
+		bitmap_cache.trimToSize(0);
+		
+		for (LoadImageTask task : loadImageTasks)
+			task.cancel(true);
+	}
 	
 	public void startService(boolean shuffle, boolean repeat, boolean add)
 	{
@@ -372,13 +442,6 @@ public class MainActivity extends Activity
 			finish();
 	}
 	
-	public boolean isInternetAvailable() 
-	{
-		ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
-
-		return cm.getActiveNetworkInfo() != null;
-    }
-	
 	public class ParsePageTask extends AsyncTask<String, Void, Integer>
 	{
 		@Override
@@ -387,246 +450,451 @@ public class MainActivity extends Activity
 			try
 			{
 				url = p1[0];
-				int index0, index1, index2;
+				Uri uri = Uri.parse(url);
 				
-				if (url.contains("list="))
+				if (mode == Mode.NONE)
+					return -1;
+					
+				else if (mode == Mode.NICO)
 				{
-					titles.clear();
-					artists.clear();
-					urls.clear();
+					id = NicoHelper.getId(uri);
+					mix = uri.getBooleanQueryParameter("mix", false);
 					
-					index0 = Math.max(url.indexOf("http://"), url.indexOf("https://"));
-					MainActivity.this.url = url = url.substring(index0);
-					playlist = true;
-					boolean playListSite = url.contains("playlist?");
-					
-					index0 = url.indexOf("list=");
-					index1 = url.indexOf("&", index0);
-					playListId = url.substring(index0 + 5, index1 == -1 ? url.length() : index1);
-					
-					index0 = url.indexOf("index=");
-					index1 = url.indexOf("&", index0);
-					if (index0 != -1)
-						playlistIndex = Integer.parseInt(url.substring(index0 + 6, index1 == -1 ? url.length() : index1));
-					
-					page = NetworkHelper.getPage(url);
-					
-					int index3 = 0;
-					if (playListSite)
+					if (!NicoHelper.LOGIN)
+						NicoHelper.login(MainActivity.this);
+						
+					if (mix || NicoHelper.isPlaylist(uri))
 					{
-						index0 = page.indexOf("class=\"pl-header-title\"");
-						index1 = index0 == -1 ? -1 : page.indexOf(">", index0);
-						index2 = index1 == -1 ? -1 : page.indexOf("</h1>", index1);
-
-						playlistTitle = index2 == -1 ? "Playlist" : page.substring(index1 + 1, index2);
+						titles.clear();
+						artists.clear();
+						urls.clear();
 						
-						while (true)
-						{
-							index0 = page.indexOf("pl-video yt-uix-tile ", index3);
-							index1 = index0 == -1 ? -1 : page.indexOf("data-video-id=\"", index0);
-							index3 = index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 15);
-
-							if (index2 != -1)
-							{
-								ids.add(page.substring(index1 + 15, index2));
-								urls.add("https://www.youtube.com/watch?v=" + page.substring(index1 + 15, index2));
-							}
-							else
-								break;
-
-							index1 = index0 == -1 ? -1 : page.indexOf("data-title=\"", index0);
-							index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 12);
-
-							if (index2 != -1)
-								titles.add(page.substring(index1 + 12, index2));
-							else
-								titles.add("" + titles.size());
-
-							index0 = page.indexOf("pl-video-owner", index0);
-							index1 = index0 == -1 ? -1 : page.indexOf(">", index0 + 17);
-							index2 = index1 == -1 ? -1 : page.indexOf("</a>", index1 + 1);
-
-							if (index2 != -1)
-								artists.add(page.substring(index1 + 1, index2));
-							else
-								artists.add("Unknown Artist");
-						}
-							
-						index1 = page.indexOf("data-uix-load-more-href=\"");
-						index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 25);
-						
-						if (index2 != -1)
-						{
-							loadMore = true;
-							loadMoreUrl = "https://www.youtube.com" + page.substring(index1 + 25, index2);
-						}
-						else 
-							loadMore = false;
-					}
-					else
-					{
-						index1 = page.indexOf("data-list-title=\"");
-						index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 17);
-
-						playlistTitle = index2 == -1 ? "Playlist" : page.substring(index1 + 17, index2);
-						
-						while (true)
-						{
-							index0 = page.indexOf("yt-uix-scroller-scroll-unit", index3);
-							index1 = index0 == -1 ? -1 : page.indexOf("data-video-id=\"", index0);
-							index3 = index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 15);
-
-							if (index2 != -1)
-							{
-								ids.add(page.substring(index1 + 15, index2));
-								urls.add("https://www.youtube.com/watch?v=" + page.substring(index1 + 15, index2) + "&gl=US");
-							}
-							else
-								break;
-
-							index1 = index0 == -1 ? -1 : page.indexOf("data-video-title=\"", index0);
-							index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 18);
-
-							if (index2 != -1)
-								titles.add(page.substring(index1 + 18, index2));
-							else
-								titles.add("" + titles.size());
-
-							index1 = index0 == -1 ? -1 : page.indexOf("data-video-username=\"", index0);
-							index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 21);
-
-							if (index2 != -1)
-								artists.add(page.substring(index1 + 21, index2));
-							else
-								artists.add("Unknown Artist");
-						}
-						
-						mix = page.contains("playlist-mix-icon yt-sprite");
+						playlist = true;
 						
 						if (mix)
 						{
+							page = NetworkHelper.getSync(true, null, "http://api.gadget.nicovideo.jp/v1/videos/" + id + "/recommendations", "User-Agent", NicoHelper.USER_AGENT);
+							playlistTitle = "Mix - " + uri.getQueryParameter("title");
 							playlistIndex = 0;
+							ids.add(id);
+							urls.add("http://nico.ms/" + id);
+							titles.add(uri.getQueryParameter("title"));
+							artists.add("");
 							
-							loadMore = true;
-							loadMoreUrl = urls.get(urls.size() - 1) + "&list=RD" + ids.get(ids.size() - 1);
-						}
-						else 
-							loadMore = false;
-					}
-					
-					url = urls.get(playlistIndex);
-				}
-				
-				if (url.contains("youtu.be"))
-				{
-					index0 = url.lastIndexOf("/");
-					index1 = url.indexOf("?", index0);
-					id = url.substring(index0 + 1, index1 == -1 ? url.length() : index1);
-				}
-				else
-				{
-					index0 = url.indexOf("v=");
-					index1 = url.indexOf("&", index0);
-					id = url.substring(index0 + 2, index1 == -1 ? url.length() : index1);
-				}
-				
-				time = 0;
-				
-				index0 = url.indexOf("t=");
-				index1 = index0 == -1 ? - 1 : url.indexOf("&", index0);
-				if (index0 != -1)
-					time = StringUtils.fromUrlTime(url.substring(index0 + 2, index1 == -1 ? url.length() : index1));
-			
-				url = "https://www.youtube.com/watch?v=" + id + "&gl=US";
-				page = NetworkHelper.getPage(url);
-				
-				index0 = page.indexOf("class=\"yt-user-info\"");
-				index1 = index0 == -1 ? -1 : page.indexOf(">", index0 + 35);
-				index2 = index1 == -1 ? -1 : page.indexOf("</a>", index1);
-				
-				if (index2 != -1)
-					artist = page.substring(index1 + 1, index2);
-					
-				index0 = page.indexOf("id=\"eow-title\"");
-				index1 = index0 == -1 ? -1 : page.indexOf(">", index0);
-				index2 = index1 == -1 ? -1 : page.indexOf("</span>", index1);
-				
-				if (index2 != -1)
-					title = page.substring(index1 + 1, index2);
-				
-				index1 = page.indexOf("<meta itemprop=\"duration\" content=\"");
-				index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 35);
-				
-				if (index2 != -1)
-					duration = StringUtils.fromUrlTime(page.substring(index1 + 37, index2));
-					
-				index0 = page.indexOf("class=\"watch-time-text\"");
-				index1 = index0 == -1 ? -1 : page.indexOf(">", index0);
-				index2 = index1 == -1 ? -1 : page.indexOf("</strong>", index1);
-				
-				if (index2 != -1)
-					description = page.substring(index1 + 1, index2) + " • ";
-				
-				index0 = page.indexOf("class=\"watch-view-count\"");
-				index1 = index0 == -1 ? -1 : page.indexOf(">", index0);
-				index2 = index1 == -1 ? -1 : page.indexOf("</div>", index1);
-				
-				if (index2 != -1)
-					description += page.substring(index1 + 1, index2) + "<br /><br />";
-				
-				index0 = page.indexOf("id=\"eow-description\"");
-				index1 = index0 == -1 ? -1 : page.indexOf(">", index0);
-				index2 = index1 == -1 ? -1 : page.indexOf("</p>", index1);
-					
-				if (index2 != -1)
-					description += page.substring(index1 + 1, index2);
-				
-				bitmap_video = getBitmap(id);
-				
-				index0 = page.indexOf("video-thumb  yt-thumb yt-thumb-48 g-hovercard");
-				index1 = index0 == -1 ? -1 : page.indexOf("data-thumb=\"", index0);
-				index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 12);
-				
-				InputStream in;
-				
-				if (index2 != -1)
-				{
-					try
-					{
-						in = new URL(page.substring(index1 + 12, index2).replaceFirst("^//", "http://")).openStream();
-					}
-					catch (Exception e1)
-					{
-						e1.printStackTrace();
-						in = null;
-					}
-					
-					if (in != null)
-					{
-						bitmap_artist = BitmapFactory.decodeStream(in);
+							JSONArray items = new JSONObject(page).getJSONArray("contents");
+							int count = items.length();
+							for (int i = 0; i < count; ++i)
+							{
+								ids.add(items.getJSONObject(i).getJSONObject("value").getString("id"));
+								urls.add("http://nico.ms/" + ids.get(urls.size()));
+								titles.add(items.getJSONObject(i).getJSONObject("value").getString("title"));
+								artists.add("");
+							}
 
-						in.close();
+							float ratio = bitmap_video == null ? 16 / 9F : bitmap_video.getWidth() / (float) bitmap_video.getHeight();
+							Bitmap bitmap = NicoHelper.getIcon(ids.get(playlistIndex));
+							Bitmap bitmap1;
+							if ((float) bitmap.getWidth() / bitmap.getHeight() > ratio)
+								bitmap1 = Bitmap.createBitmap(bitmap, (int) ((bitmap.getWidth() - bitmap.getHeight() * ratio) / 2F), 0, (int) (bitmap.getHeight() * ratio), bitmap.getHeight());
+							else
+								bitmap1 = Bitmap.createBitmap(bitmap, 0, (int) ((bitmap.getHeight() - bitmap.getWidth() / ratio) / 2F), bitmap.getWidth(), (int) (bitmap.getWidth() / ratio));
+
+							if (bitmap != bitmap1)
+								bitmap.recycle();
+
+							bitmap_video = bitmap1;
+							title = titles.get(playlistIndex);
+							artist = artists.get(playlistIndex);
+							loadMoreUrl = "http://api.gadget.nicovideo.jp/v1/videos/" + ids.get(ids.size() - 1) + "/recommendations";
+							loadMore = true;
+						}
+						else if (uri.getPathSegments().get(0).equals("tag") || uri.getPathSegments().get(0).equals("search"))
+						{
+							boolean tag = uri.getPathSegments().get(0).equals("tag");
+							page = NetworkHelper.getSync(true, null, "http://api.gadget.nicovideo.jp/video/videos/by_" + (tag ? "tag" : "keyword") + "?sortOrderTypeCode=d&page=0&sortKeyTypeCode=v&pageSize=50&" + (tag ? "tag=" : "keyword=") + URLEncoder.encode(id), "User-Agent", NicoHelper.USER_AGENT);
+
+							JSONObject parsed = new JSONObject(page);	
+							playlistTitle = (tag ? "Tag: " : "Search: ") + id;
+							playlistIndex = 0;
+
+							JSONArray items = parsed.getJSONArray("items");
+							int count = items.length();
+							for (int i = 0; i < count; ++i)
+								if (!items.getJSONObject(i).isNull("id"))
+								{
+									ids.add(items.getJSONObject(i).getString("id"));
+									urls.add("http://nico.ms/" + ids.get(urls.size()));
+									titles.add(items.getJSONObject(i).getString("title"));
+									artists.add("");
+								}
+
+							float ratio = 16F / 9F;
+							if (!items.getJSONObject(playlistIndex).isNull("originalResolution"))
+							{
+								JSONObject resolution = items.getJSONObject(playlistIndex).getJSONObject("originalResolution");
+								ratio = resolution.getInt("width") / (float) resolution.getInt("height");
+							}
+
+							Bitmap bitmap = NicoHelper.getIcon(ids.get(playlistIndex));
+							Bitmap bitmap1;
+							if ((float) bitmap.getWidth() / bitmap.getHeight() > ratio)
+								bitmap1 = Bitmap.createBitmap(bitmap, (int) ((bitmap.getWidth() - bitmap.getHeight() * ratio) / 2F), 0, (int) (bitmap.getHeight() * ratio), bitmap.getHeight());
+							else
+								bitmap1 = Bitmap.createBitmap(bitmap, 0, (int) ((bitmap.getHeight() - bitmap.getWidth() / ratio) / 2F), bitmap.getWidth(), (int) (bitmap.getWidth() / ratio));
+
+							if (bitmap != bitmap1)
+								bitmap.recycle();
+
+							bitmap_video = bitmap1;
+							title = titles.get(playlistIndex);
+							artist = artists.get(playlistIndex);
+							
+							loadMore = !parsed.isNull("next");
+							if (loadMore)
+								loadMoreUrl = "http://api.gadget.nicovideo.jp/video/videos/by_" + (tag ? "tag" : "keyword") + "?sortOrderTypeCode=d&page=" + parsed.getInt("next") + "&sortKeyTypeCode=v&pageSize=50&" + (tag ? "tag=" : "keyword=") + URLEncoder.encode(id);
+						}
+						else
+						{
+							page = NetworkHelper.getSync(true, null, "http://api.gadget.nicovideo.jp/user/mylists/" + id + "?page=0&pageSize=100", "User-Agent", NicoHelper.USER_AGENT);
+						
+							JSONObject parsed = new JSONObject(page);	
+							playlistTitle = parsed.getString("name");
+							playlistIndex = 0;
+
+							JSONObject entries = parsed.getJSONObject("myListEntries");	
+							String next = entries.getString("next");
+
+							if (!next.equals("null"))
+							{
+								loadMore = true;
+								loadMoreUrl =  "http://api.gadget.nicovideo.jp/user/mylists/" + id + "?page=" + next + "&pageSize=100";
+							}
+
+							JSONArray items = entries.getJSONArray("items");
+							int count = items.length();
+							for (int i = 0; i < count; ++i)
+								if (!items.getJSONObject(i).isNull("videoId"))
+								{
+									ids.add(items.getJSONObject(i).getString("videoId"));
+									urls.add("http://nico.ms/" + ids.get(urls.size()));
+									titles.add(items.getJSONObject(i).getString("title"));
+									artists.add("");
+								}
+
+							float ratio = 16F / 9F;
+							if (!items.getJSONObject(playlistIndex).isNull("video") && !items.getJSONObject(playlistIndex).getJSONObject("video").isNull("originalResolution"))
+							{
+								JSONObject resolution = items.getJSONObject(playlistIndex).getJSONObject("video").getJSONObject("originalResolution");
+								ratio = resolution.getInt("width") / (float) resolution.getInt("height");
+							}
+							
+							Bitmap bitmap = NicoHelper.getIcon(ids.get(playlistIndex));
+							Bitmap bitmap1;
+							if ((float) bitmap.getWidth() / bitmap.getHeight() > ratio)
+								bitmap1 = Bitmap.createBitmap(bitmap, (int) ((bitmap.getWidth() - bitmap.getHeight() * ratio) / 2F), 0, (int) (bitmap.getHeight() * ratio), bitmap.getHeight());
+							else
+								bitmap1 = Bitmap.createBitmap(bitmap, 0, (int) ((bitmap.getHeight() - bitmap.getWidth() / ratio) / 2F), bitmap.getWidth(), (int) (bitmap.getWidth() / ratio));
+
+							if (bitmap != bitmap1)
+								bitmap.recycle();
+
+							bitmap_video = bitmap1;
+							title = titles.get(playlistIndex);
+							artist = artists.get(playlistIndex);
+						}
 					}
-				}
-				
-				index0 = page.indexOf("quality=" + PreferenceManager.getDefaultSharedPreferences(MainActivity.this).getString("quality", "High").toLowerCase());
-				index0 = index0 == -1 ? page.indexOf("quality=") : index0;
-				index1 = index0 == -1 ? -1 : page.indexOf("url=", index0);
-				index2 = index1 == -1 ? -1 : page.indexOf(",", index1);
-				index0 = index1 == -1 ? -1 : page.indexOf("\\u0026", index1);
-				index2 = index2 == -1 ? index0 : index0 == -1 ? index2 : Math.min(index0, index2);
-				
-				if (index2 != -1)
-				{
+					else
+					{
+						id = NicoHelper.getId(uri);
+						url = "http://nico.ms/" + id;
+
+						page = NetworkHelper.getSync(true, null, "http://api.gadget.nicovideo.jp/video/videos/" + id, "User-Agent", NicoHelper.USER_AGENT);
+
+						JSONObject parsed = new JSONObject(page);	  
+						title = parsed.getString("title");
+
+						description = "Published on " + formatOut.format(formatIn.parse(parsed.getString("uploadTime"))) + "・" + String.format("%,d", parsed.getInt("viewCount"), Locale.US).replace(',', '.') + " Views<br /><br />" + parsed.getString("description") + "<br /><br /><b>";	
+						JSONArray tags = parsed.getJSONArray("tags");
+						int count = tags.length();
+						for (int i = 0; i < count; ++i)
+							description = description + "<br />【<a href=\"http://nicovideo.jp/tag/" + tags.getJSONObject(i).getString("name") + "/\">" + tags.getJSONObject(i).getString("name") + "</a>】";
+						description = description + "</b>";
+						duration = parsed.getInt("lengthInSeconds");
+						
+						float ratio = 16F / 9F;
+						if (!parsed.isNull("originalResolution"))
+						{
+							JSONObject resolution = parsed.getJSONObject("originalResolution");
+							ratio = resolution.getInt("width") / (float) resolution.getInt("height");
+						}
+						
+						Bitmap bitmap = NicoHelper.getIcon(id);
+						Bitmap bitmap1;
+						if ((float) bitmap.getWidth() / bitmap.getHeight() > ratio)
+							bitmap1 = Bitmap.createBitmap(bitmap, (int) ((bitmap.getWidth() - bitmap.getHeight() * ratio) / 2F), 0, (int) (bitmap.getHeight() * ratio), bitmap.getHeight());
+						else
+							bitmap1 = Bitmap.createBitmap(bitmap, 0, (int) ((bitmap.getHeight() - bitmap.getWidth() / ratio) / 2F), bitmap.getWidth(), (int) (bitmap.getWidth() / ratio));
+
+						if (bitmap != bitmap1)
+							bitmap.recycle();
+
+						bitmap_video = bitmap1;
+
+						parsed = new JSONObject(NetworkHelper.getSync(true, null, "http://api.gadget.nicovideo.jp/user/profiles/" + parsed.getString("userId"), "User-Agent", NicoHelper.USER_AGENT));	
+						artist = parsed.getString("nickname");
+
+						InputStream in;
+						try
+						{
+							in = new URL(parsed.getString("thumbnailUrl")).openStream();
+						}
+						catch (Exception e1)
+						{
+							e1.printStackTrace();
+							in = null;
+						}
+
+						if (in != null)
+						{
+							bitmap_artist = BitmapFactory.decodeStream(in);
+
+							in.close();
+						}
+
+						if (uri.getQueryParameterNames().contains("t"))
+							time = StringUtils.fromUrlTime(uri.getQueryParameter("t"));
+						else 
+							time = 0;
+						
+					}
+					
 					return 0;
 				}
-				else if (page.contains("unavailable-message"))
-				{
-					return 1;
-				}
 				else
-					return 2;
+				{
+					int index0, index1, index2;
+
+					if (uri.getQueryParameterNames().contains("list"))
+					{
+						titles.clear();
+						artists.clear();
+						urls.clear();
+
+						playlist = true;
+						boolean playListSite = uri.getLastPathSegment().equals("playlist");
+
+						playListId = uri.getQueryParameter("list");
+						
+						if (uri.getQueryParameterNames().contains("index"))
+							playlistIndex = Integer.parseInt(uri.getQueryParameter("index"));
+							
+						page = NetworkHelper.getPage(url.replace("http://", "https://"));
+
+						int index3 = 0;
+						if (playListSite)
+						{
+							index0 = page.indexOf("class=\"pl-header-title\"");
+							index1 = index0 == -1 ? -1 : page.indexOf(">", index0);
+							index2 = index1 == -1 ? -1 : page.indexOf("</h1>", index1);
+
+							playlistTitle = index2 == -1 ? "Playlist" : page.substring(index1 + 1, index2);
+
+							while (true)
+							{
+								index0 = page.indexOf("pl-video yt-uix-tile ", index3);
+								index1 = index0 == -1 ? -1 : page.indexOf("data-video-id=\"", index0);
+								index3 = index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 15);
+
+								if (index2 != -1)
+								{
+									ids.add(page.substring(index1 + 15, index2));
+									urls.add("https://www.youtube.com/watch?v=" + page.substring(index1 + 15, index2));
+								}
+								else
+									break;
+
+								index1 = index0 == -1 ? -1 : page.indexOf("data-title=\"", index0);
+								index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 12);
+
+								if (index2 != -1)
+									titles.add(page.substring(index1 + 12, index2));
+								else
+									titles.add("" + titles.size());
+
+								index0 = page.indexOf("pl-video-owner", index0);
+								index1 = index0 == -1 ? -1 : page.indexOf(">", index0 + 17);
+								index2 = index1 == -1 ? -1 : page.indexOf("</a>", index1 + 1);
+
+								if (index2 != -1)
+									artists.add(page.substring(index1 + 1, index2));
+								else
+									artists.add("Unknown Artist");
+							}
+
+							index1 = page.indexOf("data-uix-load-more-href=\"");
+							index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 25);
+
+							if (index2 != -1)
+							{
+								loadMore = true;
+								loadMoreUrl = "https://www.youtube.com" + page.substring(index1 + 25, index2);
+							}
+							else 
+								loadMore = false;
+						}
+						else
+						{
+							index1 = page.indexOf("data-list-title=\"");
+							index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 17);
+
+							playlistTitle = index2 == -1 ? "Playlist" : page.substring(index1 + 17, index2);
+
+							while (true)
+							{
+								index0 = page.indexOf("yt-uix-scroller-scroll-unit", index3);
+								index1 = index0 == -1 ? -1 : page.indexOf("data-video-id=\"", index0);
+								index3 = index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 15);
+
+								if (index2 != -1)
+								{
+									ids.add(page.substring(index1 + 15, index2));
+									urls.add("https://www.youtube.com/watch?v=" + page.substring(index1 + 15, index2));
+								}
+								else
+									break;
+
+								index1 = index0 == -1 ? -1 : page.indexOf("data-video-title=\"", index0);
+								index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 18);
+
+								if (index2 != -1)
+									titles.add(page.substring(index1 + 18, index2));
+								else
+									titles.add("" + titles.size());
+
+								index1 = index0 == -1 ? -1 : page.indexOf("data-video-username=\"", index0);
+								index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 21);
+
+								if (index2 != -1)
+									artists.add(page.substring(index1 + 21, index2));
+								else
+									artists.add("Unknown Artist");
+							}
+
+							mix = page.contains("playlist-mix-icon yt-sprite");
+
+							if (mix)
+							{
+								playlistIndex = 0;
+
+								loadMore = true;
+								loadMoreUrl = urls.get(urls.size() - 1) + "&list=RD" + ids.get(ids.size() - 1);
+							}
+							else 
+								loadMore = false;
+						}
+
+						url = urls.get(playlistIndex);
+						uri = Uri.parse(url);
+					}
+
+					id = YouTubeHelper.getId(uri);
 					
+					if (uri.getQueryParameterNames().contains("t"))
+						time = StringUtils.fromUrlTime(uri.getQueryParameter("t"));
+					else 
+						time = 0;
+						
+					url = "https://www.youtube.com/watch?v=" + id;
+					page = NetworkHelper.getPage(url);
+
+					index0 = page.indexOf("class=\"yt-user-info\"");
+					index1 = index0 == -1 ? -1 : page.indexOf(">", index0 + 35);
+					index2 = index1 == -1 ? -1 : page.indexOf("</a>", index1);
+
+					if (index2 != -1)
+						artist = page.substring(index1 + 1, index2);
+
+					index0 = page.indexOf("id=\"eow-title\"");
+					index1 = index0 == -1 ? -1 : page.indexOf(">", index0);
+					index2 = index1 == -1 ? -1 : page.indexOf("</span>", index1);
+
+					if (index2 != -1)
+						title = page.substring(index1 + 1, index2);
+
+					index1 = page.indexOf("<meta itemprop=\"duration\" content=\"");
+					index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 35);
+
+					if (index2 != -1)
+						duration = StringUtils.fromUrlTime(page.substring(index1 + 37, index2));
+
+					index0 = page.indexOf("class=\"watch-time-text\"");
+					index1 = index0 == -1 ? -1 : page.indexOf(">", index0);
+					index2 = index1 == -1 ? -1 : page.indexOf("</strong>", index1);
+
+					if (index2 != -1)
+						description = page.substring(index1 + 1, index2) + " • ";
+
+					index0 = page.indexOf("class=\"watch-view-count\"");
+					index1 = index0 == -1 ? -1 : page.indexOf(">", index0);
+					index2 = index1 == -1 ? -1 : page.indexOf("</div>", index1);
+
+					if (index2 != -1)
+						description += page.substring(index1 + 1, index2) + "<br /><br />";
+
+					index0 = page.indexOf("id=\"eow-description\"");
+					index1 = index0 == -1 ? -1 : page.indexOf(">", index0);
+					index2 = index1 == -1 ? -1 : page.indexOf("</p>", index1);
+
+					if (index2 != -1)
+						description += page.substring(index1 + 1, index2);
+
+					bitmap_video = YouTubeHelper.getIcon(id);
+
+					index0 = page.indexOf("video-thumb  yt-thumb yt-thumb-48 g-hovercard");
+					index1 = index0 == -1 ? -1 : page.indexOf("data-thumb=\"", index0);
+					index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 12);
+
+					InputStream in;
+
+					if (index2 != -1)
+					{
+						try
+						{
+							in = new URL(page.substring(index1 + 12, index2).replaceFirst("^//", "http://")).openStream();
+						}
+						catch (Exception e1)
+						{
+							e1.printStackTrace();
+							in = null;
+						}
+
+						if (in != null)
+						{
+							bitmap_artist = BitmapFactory.decodeStream(in);
+
+							in.close();
+						}
+					}
+
+					index0 = page.indexOf("quality=" + PreferenceManager.getDefaultSharedPreferences(MainActivity.this).getString("quality", "high"));
+					index0 = index0 == -1 ? page.indexOf("quality=") : index0;
+					index1 = index0 == -1 ? -1 : page.indexOf("url=", index0);
+					index2 = index1 == -1 ? -1 : page.indexOf(",", index1);
+					index0 = index1 == -1 ? -1 : page.indexOf("\\u0026", index1);
+					index2 = index2 == -1 ? index0 : index0 == -1 ? index2 : Math.min(index0, index2);
+
+					if (index2 != -1)
+					{
+						return 0;
+					}
+					else if (page.contains("unavailable-message"))
+					{
+						return 1;
+					}
+					else
+						return 2;
+					
+				}
 			}
 			catch (Exception e)
 			{
@@ -659,8 +927,9 @@ public class MainActivity extends Activity
 						text_title.setText("Video unavailable");
 				}
 				else
-					text_title.setText("Couln't parse page. Is this really a public YouTube video or playlist?");
+					text_title.setText("Couln't parse page.");
 
+				System.out.println("Video unavailable:\n" + url);
 			}
 			else
 			{
@@ -717,7 +986,7 @@ public class MainActivity extends Activity
 		URLSpan[] urls = strBuilder.getSpans(0, sequence.length(), URLSpan.class);   
 		
 		int start, end;
-		char[] text;
+		
 		ClickableSpan newSpan;
 		for (URLSpan span : urls) 
 		{
@@ -725,15 +994,18 @@ public class MainActivity extends Activity
 			{
 				start = strBuilder.getSpanStart(span);
 				end = strBuilder.getSpanEnd(span);
-				text = new char[end - start];
-				strBuilder.getChars(start, end, text, 0);
 				
-				newSpan = new SeekSpan(new String(text));
+				newSpan = new SeekSpan(strBuilder.subSequence(start, end).toString());
 				
 				strBuilder.setSpan(newSpan, start, end, strBuilder.getSpanFlags(span));
 				strBuilder.removeSpan(span);
 			}
 		}
+		
+		Matcher matcher = Pattern.compile("(mylist/|sm|nm|so|co)\\d\\d\\d\\d\\d\\d\\d+").matcher(sequence);
+		while (matcher.find())
+			strBuilder.setSpan(new URLSpan("http://nico.ms/" + sequence.subSequence(matcher.start(), matcher.end())), matcher.start(), matcher.end(), 0);
+		
 		text_description.setText(strBuilder);       
 	}
 	
@@ -754,75 +1026,59 @@ public class MainActivity extends Activity
 		}
 	}
 	
-	public Bitmap getBitmap(String id)
+	class LoadImageTask extends AsyncTask<String, Void, Void>
 	{
-		InputStream in = null;
-		Bitmap bitmap = null;
-		
-		try
+
+		@Override
+		protected void onPreExecute()
 		{
-			in = new URL("https://i.ytimg.com/vi/" + id + "/maxresdefault.jpg").openStream();
-		}
-		catch (Exception e1)
-		{
-			try
-			{
-				in = new URL("https://i.ytimg.com/vi/" + id + "/mqdefault.jpg").openStream();
-			}
-			catch (Exception e2)
-			{
-				try
-				{
-					in = new URL("https://i.ytimg.com/vi/" + id + "/hqdefault.jpg").openStream();
-				}
-				catch (Exception e3)
-				{
-					try
-					{
-						in = new URL("https://i.ytimg.com/vi/" + id + "/default.jpg").openStream();
-					}
-					catch (Exception e4)
-					{
-						in = null;
-						bitmap = null;
-					}
-				}
-			}
+			loadImageTasks.add(this);
 		}
 
-		if (in != null)
+		@Override
+		protected void onPostExecute(Void result)
 		{
-			bitmap = BitmapFactory.decodeStream(in);
-
-			try
-			{
-				in.close();
-			}
-			catch (Exception e)
-			{
-				e.printStackTrace();
-			}
+			loadImageTasks.remove(this);
 		}
 		
-		return bitmap;
-	}
-	
-	public class LoadImageTask extends AsyncTask<String, Void, Void>
-	{
+		final float ratio = 16 / 9F;
 		@Override
 		protected Void doInBackground(String... ids1)
 		{
+			Bitmap bitmap, bitmap1;
 			for (int i = 0; i < ids1.length; ++i)
 			{
 				if (bitmap_cache.get(ids1[i]) != null)
 					continue;
 					
+				if (isCancelled())
+					return null;
+					
 				try
 				{
-					InputStream in = new URL("https://i.ytimg.com/vi/" + ids1[i] + "/mqdefault.jpg").openStream();
-					bitmap_cache.put(ids1[i], Bitmap.createBitmap(BitmapFactory.decodeStream(in)));
+					InputStream in = new URL(mode == Mode.YOUTUBE ? YouTubeHelper.getSmallIcon(ids1[i]) : NicoHelper.getSmallIcon(ids1[i])).openStream();
+					bitmap = BitmapFactory.decodeStream(in);
+					
+					if (mode == Mode.NICO)
+					{
+						if ((float) bitmap.getWidth() / bitmap.getHeight() > ratio)
+							bitmap1 = Bitmap.createBitmap(bitmap, (int) ((bitmap.getWidth() - bitmap.getHeight() * ratio) / 2F), 0, (int) (bitmap.getHeight() * ratio), bitmap.getHeight());
+						else
+							bitmap1 = Bitmap.createBitmap(bitmap, 0, (int) ((bitmap.getHeight() - bitmap.getWidth() / ratio) / 2F), bitmap.getWidth(), (int) (bitmap.getWidth() / ratio));
+
+						if (bitmap != bitmap1)
+							bitmap.recycle();
+							
+						bitmap_cache.put(ids1[i], bitmap1);
+					}
+					else
+						bitmap_cache.put(ids1[i], bitmap);
+					
 					in.close();
 
+					if (isCancelled())
+						return null;
+					
 					MainActivity.this.runOnUiThread(new UpdateRunnable(ids.indexOf(ids1[i]) + 1));
 				}
 				catch (Exception e)
@@ -902,7 +1158,16 @@ public class MainActivity extends Activity
 											case R.id.item_mix:
 												intent = new Intent(MainActivity.this, MainActivity.class);
 												intent.setAction(Intent.ACTION_SEND);
-												intent.putExtra(Intent.EXTRA_TEXT, "http://www.youtube.com/watch?v=" + ids.get(index - 1) + "&list=RD" + ids.get(index - 1));
+												
+												String url;
+												
+												if (mode == Mode.YOUTUBE)
+													url = "http://www.youtube.com/watch?v=" + ids.get(index - 1) + "&list=RD" + ids.get(index - 1);
+
+												else
+													url = "http://nico.ms/" + ids.get(index - 1) + "?mix=true&title=" + URLDecoder.decode(titles.get(index - 1));
+												
+												intent.putExtra(Intent.EXTRA_TEXT, url);
 												startActivity(intent);
 												return true;
 					
@@ -951,11 +1216,15 @@ public class MainActivity extends Activity
 
 							MenuInflater inflater = popup.getMenuInflater();
 							inflater.inflate(R.menu.playlist, popup.getMenu());
+							
+							if (mode == Mode.NICO)
+								popup.getMenu().findItem(R.id.item_view).setTitle("View on NicoNico");
+							
 							popup.show();
 						}
 					});
 					
-				if (!isInternetAvailable())
+				if (!NetworkHelper.isInternetAvailable(MainActivity.this))
 				{
 					layout_title.setVisibility(View.VISIBLE);
 					image_menu.setVisibility(View.GONE);
@@ -980,7 +1249,6 @@ public class MainActivity extends Activity
 				
 				layout_title = v.findViewById(R.id.layout_title);
 				
-				text_description.setLinksClickable(true);
 				text_description.setMovementMethod(LinkMovementMethod.getInstance());
 				layout_title.setOnClickListener(new View.OnClickListener()
 					{
@@ -1040,7 +1308,7 @@ public class MainActivity extends Activity
 							text_title.setVisibility(View.INVISIBLE);
 							progress.setVisibility(View.VISIBLE);
 							
-							new LoadMoreTask().execute();
+							new LoadMoreTask().executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
 						}
 					});
 			}
@@ -1121,7 +1389,7 @@ public class MainActivity extends Activity
 			}
 			v.setBackgroundColor(0xFF303030);
 			((ImageButton) v.findViewById(R.id.button_overflow)).setImageResource(R.drawable.dots_vertical);
-			new ChangeImageTask().execute(ids.get(index));
+			new ChangeImageTask().executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, ids.get(index));
 		}
 	}
 	
@@ -1130,7 +1398,7 @@ public class MainActivity extends Activity
 		@Override
 		protected Bitmap doInBackground(String[] p1)
 		{
-			Bitmap bitmap = getBitmap(p1[0]);
+			Bitmap bitmap = mode == Mode.YOUTUBE ? YouTubeHelper.getIcon(p1[0]) : NicoHelper.getIcon(p1[0]);
 			if (bitmap == null)
 				return null;
 			
@@ -1175,100 +1443,174 @@ public class MainActivity extends Activity
 	
 	public class LoadMoreTask extends AsyncTask<String, Void, String>
 	{
-
 		@Override
 		protected String doInBackground(String[] p1)
 		{
 			try
 			{
-				page = NetworkHelper.getPage(loadMoreUrl);
-			
-				int index0, index1, index2, index3 = 0;
-				if (mix)
+				if (mode == Mode.NICO)
 				{
-					for (int i = 0; true; i++)
+					Uri uri = Uri.parse(url);
+					
+					if (mix)
 					{
-						index0 = page.indexOf("yt-uix-scroller-scroll-unit", index3);
-						index1 = index0 == -1 ? -1 : page.indexOf("data-video-id=\"", index0);
-						index3 = index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 15);
+						page = NetworkHelper.getSync(true, null, loadMoreUrl, "User-Agent", NicoHelper.USER_AGENT);
 						
-						if (index2 != -1)
+						JSONArray items = new JSONObject(page).getJSONArray("contents");
+						int count = items.length();
+						for (int i = 0; i < count; ++i)
 						{
-							if (i == 0)
-								continue;
-								
-							ids.add(page.substring(index1 + 15, index2));
-							urls.add("https://www.youtube.com/watch?v=" + page.substring(index1 + 15, index2) + "&gl=US");
+							ids.add(items.getJSONObject(i).getJSONObject("value").getString("id"));
+							urls.add("http://nico.ms/" + ids.get(urls.size()));
+							titles.add(items.getJSONObject(i).getJSONObject("value").getString("title"));
+							artists.add("");
 						}
-						else
-							break;
-							
-
-						index1 = index0 == -1 ? -1 : page.indexOf("data-video-title=\"", index0);
-						index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 18);
-
-						if (index2 != -1)
-							titles.add(page.substring(index1 + 18, index2));
-						else
-							titles.add("" + titles.size());
-
-						index1 = index0 == -1 ? -1 : page.indexOf("data-video-username=\"", index0);
-						index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 21);
-
-						if (index2 != -1)
-							artists.add(page.substring(index1 + 21, index2));
-						else
-							artists.add("Unknown Artist");
+						
+						loadMoreUrl =  "http://api.gadget.nicovideo.jp/v1/videos/" + ids.get(ids.size() - 1) + "/recommendations";
 					}
-					
-					loadMoreUrl = urls.get(urls.size() - 1) + "&list=RD" + ids.get(ids.size() - 1);
+					else if (uri.getPathSegments().get(0).equals("tag") || uri.getPathSegments().get(0).equals("search"))
+					{
+						boolean tag = uri.getPathSegments().get(0).equals("tag");
+						
+						page = NetworkHelper.getSync(true, null, loadMoreUrl, "User-Agent", NicoHelper.USER_AGENT);
+
+						JSONObject entries = new JSONObject(page);	
+						String next = entries.getString("next");
+
+						if (!next.equals("null"))
+						{
+							loadMore = true;
+							loadMoreUrl = "http://api.gadget.nicovideo.jp/video/videos/by_" + (tag ? "tag" : "keyword") + "?sortOrderTypeCode=d&page=" + next + "&sortKeyTypeCode=v&pageSize=50&" + (tag ? "tag=" : "keyword=") + URLEncoder.encode(id);
+						}
+						else 
+							loadMore = false;
+
+						JSONArray items = entries.getJSONArray("items");
+						int count = items.length();
+						for (int i = 0; i < count; ++i)
+						{
+							ids.add(items.getJSONObject(i).getString("id"));
+							urls.add("http://nico.ms/" + ids.get(urls.size()));
+							titles.add(items.getJSONObject(i).getString("title"));
+							artists.add("");
+						}
+					}
+					else
+					{
+						page = NetworkHelper.getSync(true, null, loadMoreUrl, "User-Agent", NicoHelper.USER_AGENT);
+
+						JSONObject entries = new JSONObject(page).getJSONObject("myListEntries");	
+						String next = entries.getString("next");
+
+						if (!next.equals("null"))
+						{
+							loadMore = true;
+							loadMoreUrl =  "http://api.gadget.nicovideo.jp/user/mylists/" + id + "?page=" + next + "&pageSize=100";
+						}
+						else loadMore = false;
+
+						JSONArray items = entries.getJSONArray("items");
+						int count = items.length();
+						for (int i = 0; i < count; ++i)
+						{
+							ids.add(items.getJSONObject(i).getString("videoId"));
+							urls.add("http://nico.ms/" + ids.get(urls.size()));
+							titles.add(items.getJSONObject(i).getString("title"));
+							artists.add("");
+						}
+					}
 				}
-				else
+				else if (mode == Mode.YOUTUBE)
 				{
-					page = StringUtils.unescapeJava(page);
-					
-					while (true)
+					page = NetworkHelper.getPage(loadMoreUrl);
+
+					int index0, index1, index2, index3 = 0;
+					if (mix)
 					{
-						index0 = page.indexOf("pl-video yt-uix-tile ", index3);
-						index1 = index0 == -1 ? -1 : page.indexOf("data-video-id=\"", index0);
-						index3 = index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 15);
+						for (int i = 0; true; i++)
+						{
+							index0 = page.indexOf("yt-uix-scroller-scroll-unit", index3);
+							index1 = index0 == -1 ? -1 : page.indexOf("data-video-id=\"", index0);
+							index3 = index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 15);
+
+							if (index2 != -1)
+							{
+								if (i == 0)
+									continue;
+
+								ids.add(page.substring(index1 + 15, index2));
+								urls.add("https://www.youtube.com/watch?v=" + page.substring(index1 + 15, index2));
+							}
+							else
+								break;
+
+
+							index1 = index0 == -1 ? -1 : page.indexOf("data-video-title=\"", index0);
+							index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 18);
+
+							if (index2 != -1)
+								titles.add(page.substring(index1 + 18, index2));
+							else
+								titles.add("" + titles.size());
+
+							index1 = index0 == -1 ? -1 : page.indexOf("data-video-username=\"", index0);
+							index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 21);
+
+							if (index2 != -1)
+								artists.add(page.substring(index1 + 21, index2));
+							else
+								artists.add("Unknown Artist");
+						}
+
+						loadMoreUrl = urls.get(urls.size() - 1) + "&list=RD" + ids.get(ids.size() - 1);
+					}
+					else
+					{
+						page = StringUtils.unescapeJava(page);
+
+						while (true)
+						{
+							index0 = page.indexOf("pl-video yt-uix-tile ", index3);
+							index1 = index0 == -1 ? -1 : page.indexOf("data-video-id=\"", index0);
+							index3 = index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 15);
+
+							if (index2 != -1)
+							{
+								ids.add(page.substring(index1 + 15, index2));
+								urls.add("https://www.youtube.com/watch?v=" + page.substring(index1 + 15, index2));
+							}
+							else
+								break;
+
+							index1 = index0 == -1 ? -1 : page.indexOf("data-title=\"", index0);
+							index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 12);
+
+							if (index2 != -1)
+								titles.add(page.substring(index1 + 12, index2));
+							else
+								titles.add("" + titles.size());
+
+							index0 = page.indexOf("pl-video-owner", index0);
+							index1 = index0 == -1 ? -1 : page.indexOf(">", index0 + 17);
+							index2 = index1 == -1 ? -1 : page.indexOf("</a>", index1 + 1);
+
+							if (index2 != -1)
+								artists.add(page.substring(index1 + 1, index2));
+							else
+								artists.add("Unknown Artist");
+						}
+
+						index1 = page.indexOf("data-uix-load-more-href=\"");
+						index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 25);
 
 						if (index2 != -1)
 						{
-							ids.add(page.substring(index1 + 15, index2));
-							urls.add("https://www.youtube.com/watch?v=" + page.substring(index1 + 15, index2));
+							loadMore = true;
+							loadMoreUrl = "https://www.youtube.com" + page.substring(index1 + 25, index2);
 						}
-						else
-							break;
-
-						index1 = index0 == -1 ? -1 : page.indexOf("data-title=\"", index0);
-						index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 12);
-
-						if (index2 != -1)
-							titles.add(page.substring(index1 + 12, index2));
-						else
-							titles.add("" + titles.size());
-
-						index0 = page.indexOf("pl-video-owner", index0);
-						index1 = index0 == -1 ? -1 : page.indexOf(">", index0 + 17);
-						index2 = index1 == -1 ? -1 : page.indexOf("</a>", index1 + 1);
-
-						if (index2 != -1)
-							artists.add(page.substring(index1 + 1, index2));
-						else
-							artists.add("Unknown Artist");
+						else 
+							loadMore = false;
 					}
-
-					index1 = page.indexOf("data-uix-load-more-href=\"");
-					index2 = index1 == -1 ? -1 : page.indexOf("\"", index1 + 25);
-
-					if (index2 != -1)
-					{
-						loadMore = true;
-						loadMoreUrl = "https://www.youtube.com" + page.substring(index1 + 25, index2);
-					}
-					else 
-						loadMore = false;
 				}
 			}
 			catch (Exception e)
@@ -1282,9 +1624,12 @@ public class MainActivity extends Activity
 		@Override
 		protected void onPostExecute(String result)
 		{
-			DescriptionAdapter.LoadMoreViewHolder vh = (DescriptionAdapter.LoadMoreViewHolder) recycler.getChildViewHolder(recycler.getChildAt(recycler.getChildCount() - 1));
-			vh.text_title.setVisibility(View.VISIBLE);
-			vh.progress.setVisibility(View.INVISIBLE);
+			if (recycler.getChildViewHolder(recycler.getChildAt(recycler.getChildCount() - 1)) instanceof DescriptionAdapter.LoadMoreViewHolder)
+			{
+				DescriptionAdapter.LoadMoreViewHolder vh = (DescriptionAdapter.LoadMoreViewHolder) recycler.getChildViewHolder(recycler.getChildAt(recycler.getChildCount() - 1));
+				vh.text_title.setVisibility(View.VISIBLE);
+				vh.progress.setVisibility(View.INVISIBLE);
+			}
 			
 			recycler.getAdapter().notifyDataSetChanged();
 			text_description.setText(titles.size() + (loadMore ? "+" : "") + (titles.size() == 1 ? " Video" : " Videos"));

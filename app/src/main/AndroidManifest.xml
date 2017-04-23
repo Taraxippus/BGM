@@ -46,6 +46,10 @@
 				<data android:host="youtube.com"/>
 				<data android:host="www.youtube.com"/>
 				<data android:host="youtu.be"/>
+				<data android:host="nicovideo.jp"/>
+				<data android:host="www.nicovideo.jp"/>
+				<data android:host="sp.nicovideo.jp"/>
+				<data android:host="nico.ms"/>
 			</intent-filter>
         </activity>
 		
@@ -67,7 +71,9 @@
 		<activity
 			android:name=".PreferenceActivity" 
 			android:label="Preferences"
-			android:theme="@style/PreferenceTheme" >
+			android:theme="@style/PreferenceTheme"
+			android:excludeFromRecents="true"
+			android:noHistory="true">
 
 			<intent-filer>
 				<action android:name="android.intent.action.MAIN" />
@@ -75,14 +81,13 @@
 			</intent-filer>
 		</activity>
 		
-		<activity
-			android:name=".WebViewActivity" 
-			android:label="BGM" 
-			android:parentActivityName=".MainActivity" >
 
-			<meta-data
-				android:name="android.support.PARENT_ACTIVITY"
-				android:value=".MainActivity" />
+		<activity
+			android:name=".LoginActivity" 
+			android:label="NicoNico"
+			android:theme="@style/PreferenceTheme" 
+			android:excludeFromRecents="true"
+			android:noHistory="true">
 		</activity>
     </application>
 </manifest>
