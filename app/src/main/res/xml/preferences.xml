@@ -23,6 +23,11 @@
         android:title="Change volume"
    	    android:summary="Change volume of the player" />
 	
+	<Preference
+        android:key="speed"
+        android:title="Change speed"
+   	    android:summary="Change playback speed of the player" />
+	
 	<ListPreference
 		android:title="Choose quality"
 		android:summary="Choose the quality of the stream"

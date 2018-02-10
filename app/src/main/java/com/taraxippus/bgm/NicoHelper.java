@@ -15,7 +15,7 @@ import org.apache.http.message.BasicHeader;
 
 public class NicoHelper
 {
-	public static final String USER_AGENT = "Niconico/1.0 (Linux; U; Android " + Build.VERSION.RELEASE + "; en_US; nicobox_android " + Build.MODEL + ") Version/1.6.0";
+	public static final String USER_AGENT = "Niconico/1.0 (Linux; U; Android " + Build.VERSION.RELEASE + "; en_US; nicobox_android " + Build.MODEL + ") Version/1.9.0";
 	public static boolean LOGIN = false;
 	
 	public static void login(final Context context)

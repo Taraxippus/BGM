@@ -9,5 +9,6 @@
         <item>High</item>
 		<item>Medium</item>
 		<item>Low</item>
+		<item>Audio</item>
     </string-array>
 </resources>

@@ -56,7 +56,7 @@ public class LoginActivity extends Activity
 									PreferenceManager.getDefaultSharedPreferences(LoginActivity.this).edit()
 									.putString("nico_user_session", user_session)
 									.putString("nico_sid", sid).apply();
-									Toast.makeText(LoginActivity.this, "Logged In", Toast.LENGTH_SHORT).show();
+									Toast.makeText(LoginActivity.this, "Logged In. Please reopen video", Toast.LENGTH_SHORT).show();
 									NicoHelper.LOGIN = true;
 									finish();
 								}

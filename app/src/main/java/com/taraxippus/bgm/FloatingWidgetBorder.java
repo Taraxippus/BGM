@@ -23,9 +23,10 @@ public class FloatingWidgetBorder extends FrameLayout
 	final int padding;
 	public float aspectRatio = 1;
 	boolean preserveAspectRatio;
+	boolean enableFullscreen;
 	
 	final WindowManager windowManager;
-	WindowManager.LayoutParams paramsF, paramsB;
+	WindowManager.LayoutParams paramsF, paramsB, paramsF2, paramsB2;
 	View view;
 	
 	public FloatingWidgetBorder(Context context)

@@ -45,6 +45,7 @@ public class PreferenceActivity extends Activity
 			addPreferencesFromResource(R.xml.preferences);
 			
 			chooseValue("volume", "Volume", "", 0, 1, 20, 1);
+			chooseValue("speed", "Playback speed", "", 0.5F, 2, 8, 1);
 			chooseColor("color", "#FFFFFF");
 		}
 		

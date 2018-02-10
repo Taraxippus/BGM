@@ -62,6 +62,7 @@ import org.apache.http.HttpEntity;
 import org.apache.http.entity.HttpEntityWrapper;
 import org.apache.http.entity.StringEntity;
 import java.net.URLEncoder;
+import org.json.JSONException;
 
 public class MainActivity extends Activity 
 {
@@ -265,31 +266,93 @@ public class MainActivity extends Activity
 											return true;
 											
 										case R.id.item_download:
+											if (mode == Mode.NICO)
+											{
+												String id = NicoHelper.getId(Uri.parse(url));
+
+												if (!NicoHelper.LOGIN)
+													NicoHelper.login(MainActivity.this);
+
+												NetworkHelper.get(true, new NetworkHelper.NetworkListener()
+													{
+														@Override
+														public void onServerRequestComplete(String response)
+														{
+															try
+															{
+																NetworkHelper.get(true, new NetworkHelper.NetworkListener()
+																	{
+																		@Override
+																		public void onServerRequestComplete(String response)
+																		{
+																			try
+																			{
+																				String result = StringUtils.unescapeJava(new JSONObject(response).getJSONObject("data").getString("audio_url"));
+																				DownloadManager.Request r = new DownloadManager.Request(Uri.parse(result));
+
+																				r.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, Html.fromHtml(title).toString() + ".m4a");
+																				r.allowScanningByMediaScanner();
+																				r.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+
+																				DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+																				dm.enqueue(r);
+																			}
+																			catch (JSONException e)
+																			{}
+																		}
+
+																		@Override
+																		public void onErrorOccurred(String errorMessage)
+																		{
+																			Toast.makeText(MainActivity.this, errorMessage, 0).show();
+																		}
+
+
+																	}, new JSONObject(response).getString("watchApiUrl"), "User-Agent", NicoHelper.USER_AGENT);
+															}
+															catch (JSONException e)
+															{}
+														}
+
+														@Override
+														public void onErrorOccurred(String errorMessage)
+														{
+															Toast.makeText(MainActivity.this, errorMessage, 0).show();
+														}
+												}, "http://api.gadget.nicovideo.jp/v2.0/video/videos/" + id + "/play?playModeCode=auto", "User-Agent", NicoHelper.USER_AGENT);
+
+												return true;
+											}
+											
 											final ArrayList<CharSequence> items = new ArrayList<>();
 											final ArrayList<CharSequence> downloadURLs = new ArrayList<>();
 											
-											int index0, index1, index2, index3 = 0;
+											int index0, index1, index2, index3 = page.indexOf("url_encoded_fmt_stream_map");
 											
 											while (true)
 											{
 												index3 = index0 = page.indexOf("quality=", index3 + 1);
 												
-												if (index0 == -1)
+												if (index3 == -1)
 													break;
 												
-												index1 = page.indexOf("url=", index0);
-												index2 = index1 == -1 ? -1 : page.indexOf(",", index1);
-												index0 = index1 == -1 ? -1 : page.indexOf("\\u0026", index1);
-												index2 = index2 == -1 ? index0 : index0 == -1 ? index2 : Math.min(index0, index2);
-												
-												downloadURLs.add(URLDecoder.decode(page.substring(index1 + 4, index2)));
-												
-												index0 = page.indexOf("quality_label=", index3);
-												index1 = page.indexOf("\\u0026", index0);
-												index2 = page.indexOf(",", index0);
-												index2 = index2 == -1 ? index1 : index1 == -1 ? index2 : Math.min(index1, index2);
+												try
+												{
+													index1 = page.indexOf("type=", index3);
+													index2 = page.indexOf(",", index3);
+													index0 = page.indexOf("\\u0026", index3);
+													index2 = index2 == -1 ? index0 : index0 == -1 ? index2 : Math.min(index0, index2);
+													
+													items.add(page.substring(index1 + 5, page.indexOf("%3B", index1)).replace("%2F", "/") + ", " + page.substring(index3 + 8, index2));
+													
+													index1 = page.indexOf("url=", index3);
+													index2 = index1 == -1 ? -1 : page.indexOf(",", index1);
+													index0 = index1 == -1 ? -1 : page.indexOf("\\u0026", index1);
+													index2 = index2 == -1 ? index0 : index0 == -1 ? index2 : Math.min(index0, index2);
 
-												items.add(page.substring(index0 + 14, index2));
+													downloadURLs.add(URLDecoder.decode(page.substring(index1 + 4, index2)));
+												}
+												catch (Exception e) {}
 											}
 											
 											AlertDialog.Builder builder = new AlertDialog.Builder(MainActivity.this);
@@ -300,7 +363,7 @@ public class MainActivity extends Activity
 													{
 														DownloadManager.Request r = new DownloadManager.Request(Uri.parse(downloadURLs.get(which).toString()));
 
-														r.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, Html.fromHtml(title).toString());
+														r.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, Html.fromHtml(title).toString() + ".mp4");
 														r.allowScanningByMediaScanner();
 														r.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
 													
@@ -1000,6 +1063,16 @@ public class MainActivity extends Activity
 				strBuilder.setSpan(newSpan, start, end, strBuilder.getSpanFlags(span));
 				strBuilder.removeSpan(span);
 			}
+			else if (span.getURL().startsWith("/"))
+			{
+				start = strBuilder.getSpanStart(span);
+				end = strBuilder.getSpanEnd(span);
+
+				newSpan = new URLSpan("http://www.youtube.com" + span.getURL());
+
+				strBuilder.setSpan(newSpan, start, end, strBuilder.getSpanFlags(span));
+				strBuilder.removeSpan(span);
+			}
 		}
 		
 		Matcher matcher = Pattern.compile("(mylist/|sm|nm|so|co)\\d\\d\\d\\d\\d\\d\\d+").matcher(sequence);
@@ -1356,6 +1429,13 @@ public class MainActivity extends Activity
 				v.overflow.setImageResource(index - 1 == playlistIndex ? R.drawable.dots_vertical : R.drawable.dots_vertical_disabled);
 				v.itemView.setBackgroundColor(index - 1 == playlistIndex ? 0xFF303030 : 0xFF424242);
 			}
+			else if (getItemViewType(index) == 2)
+			{
+				LoadMoreViewHolder v = (LoadMoreViewHolder) holder;
+				
+				v.text_title.setVisibility(loadingMore ? View.INVISIBLE : View.VISIBLE);
+				v.progress.setVisibility(loadingMore ? View.VISIBLE : View.INVISIBLE);
+			}
 		}
 
 		@Override
@@ -1441,11 +1521,15 @@ public class MainActivity extends Activity
 		}
 	}
 	
+	boolean loadingMore = false;
+	
 	public class LoadMoreTask extends AsyncTask<String, Void, String>
 	{
 		@Override
 		protected String doInBackground(String[] p1)
 		{
+			loadingMore = true;
+			
 			try
 			{
 				if (mode == Mode.NICO)
@@ -1618,19 +1702,13 @@ public class MainActivity extends Activity
 				e.printStackTrace();
 			}
 			
+			loadingMore = false;
 			return null;
 		}
 
 		@Override
 		protected void onPostExecute(String result)
 		{
-			if (recycler.getChildViewHolder(recycler.getChildAt(recycler.getChildCount() - 1)) instanceof DescriptionAdapter.LoadMoreViewHolder)
-			{
-				DescriptionAdapter.LoadMoreViewHolder vh = (DescriptionAdapter.LoadMoreViewHolder) recycler.getChildViewHolder(recycler.getChildAt(recycler.getChildCount() - 1));
-				vh.text_title.setVisibility(View.VISIBLE);
-				vh.progress.setVisibility(View.INVISIBLE);
-			}
-			
 			recycler.getAdapter().notifyDataSetChanged();
 			text_description.setText(titles.size() + (loadMore ? "+" : "") + (titles.size() == 1 ? " Video" : " Videos"));
 		}

@@ -1,55 +1,32 @@
 package com.taraxippus.bgm;
 
-import android.app.Notification;
-import android.app.NotificationManager;
-import android.app.PendingIntent;
-import android.app.Service;
-import android.content.Context;
-import android.content.Intent;
-import android.content.SharedPreferences;
-import android.graphics.Color;
-import android.graphics.PixelFormat;
-import android.graphics.drawable.ColorDrawable;
-import android.graphics.drawable.Drawable;
-import android.media.AudioManager;
-import android.media.MediaPlayer;
-import android.media.Rating;
-import android.media.audiofx.Visualizer;
+import android.app.*;
+import android.content.*;
+import android.content.res.*;
+import android.graphics.*;
+import android.graphics.drawable.*;
+import android.media.*;
+import android.media.audiofx.*;
+import android.media.session.*;
+import android.net.*;
+import android.net.wifi.*;
+import android.opengl.*;
+import android.os.*;
+import android.preference.*;
+import android.support.annotation.*;
+import android.text.*;
+import android.view.*;
+import android.view.GestureDetector.*;
+import android.view.WindowManager.*;
+import android.view.animation.*;
+import android.webkit.*;
+import android.widget.*;
+import com.taraxippus.bgm.gl.*;
+import java.net.*;
+import java.util.*;
+import org.json.*;
+
 import android.media.session.MediaController;
-import android.media.session.MediaSession;
-import android.net.Uri;
-import android.net.wifi.WifiManager;
-import android.opengl.GLSurfaceView;
-import android.os.AsyncTask;
-import android.os.Build;
-import android.os.Handler;
-import android.os.IBinder;
-import android.os.PowerManager;
-import android.preference.PreferenceManager;
-import android.text.Html;
-import android.view.Gravity;
-import android.view.LayoutInflater;
-import android.view.SurfaceHolder;
-import android.view.SurfaceView;
-import android.view.View;
-import android.view.WindowManager;
-import android.view.WindowManager.LayoutParams;
-import android.view.animation.Animation;
-import android.view.animation.AnimationUtils;
-import android.webkit.WebSettings;
-import android.widget.ImageView;
-import android.widget.SeekBar;
-import android.widget.TextView;
-import android.widget.Toast;
-import com.taraxippus.bgm.MainActivity;
-import com.taraxippus.bgm.StringUtils;
-import com.taraxippus.bgm.gl.ConfigChooser;
-import com.taraxippus.bgm.gl.GLRenderer;
-import java.net.URLDecoder;
-import java.util.HashMap;
-import java.util.Random;
-import org.apache.http.message.BasicHeader;
-import org.json.JSONObject;
 
 public class BGMService extends Service implements MediaPlayer.OnPreparedListener, MediaPlayer.OnErrorListener, MediaPlayer.OnCompletionListener, MediaPlayer.OnVideoSizeChangedListener, AudioManager.OnAudioFocusChangeListener, MediaPlayer.OnSeekCompleteListener, SharedPreferences.OnSharedPreferenceChangeListener
 {
@@ -69,10 +46,12 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 	public static final String ACTION_VIDEO = "com.taraxippus.bgm.action.VIDEO";
 	public static final String ACTION_VISUALIZER = "com.taraxippus.bgm.action.VISUALIZER";
 	public static final String ACTION_VISUALIZER_UNPIN = "com.taraxippus.bgm.action.UNPIN";
+	public static final String ACTION_WEBVIEW = "com.taraxippus.bgm.action.WEBVIEW";
 	
 	final Random random = new Random();
 	
 	String url, nextUrl;
+	ArrayList<Stream> streams = new ArrayList<>();
 	
 	boolean repeat;
 	boolean shuffle;
@@ -85,6 +64,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 	NextSongTask nextSongTask;
 	
 	boolean wasPlaying;
+	boolean fallbackPlayer;
 	
 	Visualizer visualizer;
 	MediaPlayer player;
@@ -102,9 +82,11 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 	protected View view, view_progress, view_visualizer;
 	private TextView text_title, text_artist;
 	private ImageView button_play, button_next, button_previous;
+	private View button_close;
 	private SeekBar view_seek;
 	private FloatingWidgetBorder border;
-	private LayoutParams paramsF1, paramsF2;
+	private WebView fallbackView;
+	private LayoutParams paramsF1, paramsF2, paramsF1F, paramsW;
 	public Runnable onViewLayoutChanged;
 	
 	String playAction = ACTION_PLAY;
@@ -380,7 +362,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 			if (border.getVisibility() == View.VISIBLE && border.view == view_visualizer)
 				windowManager.removeView(border);
 
-			if (view == null)
+			if (view == null && fallbackView == null)
 				border = null;
 		}
 	}
@@ -395,11 +377,31 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 			windowManager.removeView(view);
 
 			view = null;
+			button_close = null;
 
 			if (border.getVisibility() == View.VISIBLE && border.view == view)
 				windowManager.removeView(border);
 				
-			if (view_visualizer == null)
+			if (view_visualizer == null && fallbackView == null)
+				border = null;
+		}
+	}
+	
+	public void releaseFallback()
+	{
+		if (fallbackView != null)
+		{
+			if (player != null)
+				player.setDisplay(null);
+
+			windowManager.removeView(fallbackView);
+
+			fallbackView = null;
+
+			if (border.getVisibility() == View.VISIBLE && border.view == fallbackView)
+				windowManager.removeView(border);
+
+			if (view_visualizer == null && view == null)
 				border = null;
 		}
 	}
@@ -416,7 +418,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 				view_video = (SurfaceView) view.findViewById(R.id.video);
 				view_progress = view.findViewById(R.id.progress_video);
 				final View layout_controls = view.findViewById(R.id.layout_controls);
-				final View button_close = view.findViewById(R.id.button_close);
+				button_close = view.findViewById(R.id.button_close);
 				button_play = (ImageView) view.findViewById(R.id.button_play);
 				button_next = (ImageView) view.findViewById(R.id.button_next);
 				button_previous = (ImageView) view.findViewById(R.id.button_previous);
@@ -448,7 +450,14 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 						LayoutParams.TYPE_SYSTEM_ALERT,
 						LayoutParams.FLAG_LAYOUT_NO_LIMITS | LayoutParams.FLAG_NOT_FOCUSABLE | LayoutParams.FLAG_HARDWARE_ACCELERATED,
 						PixelFormat.TRANSLUCENT);
-
+						
+					paramsF1F = new WindowManager.LayoutParams(
+						getResources().getDisplayMetrics().widthPixels,
+						getResources().getDisplayMetrics().heightPixels,
+						LayoutParams.TYPE_SYSTEM_ALERT,
+						LayoutParams.FLAG_LAYOUT_NO_LIMITS | LayoutParams.FLAG_NOT_FOCUSABLE | LayoutParams.FLAG_HARDWARE_ACCELERATED,
+						PixelFormat.TRANSLUCENT);
+					
 					paramsF1.gravity = Gravity.CENTER;
 					border.aspectRatio = 16 / 9F;
 				}
@@ -665,12 +674,70 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 						@Override
 						public boolean onLongClick(View p1)
 						{
+							if (view.getLayoutParams() == paramsF1F)
+							{
+								onViewLayoutChanged.run();
+								windowManager.updateViewLayout(view, paramsF1);
+							}
+							
 							border.show(paramsF1, view, true);
+								
 							return true;
 						}
 					};
 				view.setOnLongClickListener(showBorder);
 				layout_controls.setOnLongClickListener(showBorder);
+				
+				SimpleOnGestureListener listener = new SimpleOnGestureListener()
+				{
+					@Override
+					public boolean onDoubleTap(android.view.MotionEvent e)
+					{
+						if (view.getLayoutParams() == paramsF1F)
+						{
+							windowManager.updateViewLayout(view, paramsF1);
+							
+							onViewLayoutChanged.run();
+						}
+						else
+						{
+							Point size = new Point();
+							windowManager.getDefaultDisplay().getRealSize(size);
+							
+							paramsF1F.width = size.x;
+							paramsF1F.height = (int) (paramsF1F.width / border.aspectRatio);
+							int resourceId = getResources().getIdentifier("status_bar_height", "dimen", "android");
+							int status = 0;
+							if (resourceId > 0)
+								status = getResources().getDimensionPixelSize(resourceId);
+							
+							paramsF1F.x = -(getResources().getDisplayMetrics().widthPixels - size.x) / 2;
+							paramsF1F.y = -(getResources().getDisplayMetrics().heightPixels - size.y + status) / 2;
+							
+							windowManager.updateViewLayout(view, paramsF1F);
+							text_title.setVisibility(View.VISIBLE);
+							text_artist.setVisibility(View.VISIBLE);
+							text_time.setVisibility(View.VISIBLE);
+							view_seek.setVisibility(View.VISIBLE);
+							button_next.setVisibility((urls.length > 1 || shuffle) ? View.VISIBLE : View.GONE);
+							button_previous.setVisibility((urls.length > 1 || shuffle) ? View.VISIBLE : View.GONE);
+						}
+						return true;
+					}
+				};
+				final GestureDetector detector = new GestureDetector(this, listener);
+				detector.setOnDoubleTapListener(listener);
+				
+				View.OnTouchListener gestureTouch = new View.OnTouchListener()
+				{
+						@Override
+						public boolean onTouch(View p1, MotionEvent p2)
+						{
+							return detector.onTouchEvent(p2);
+						}
+				};
+				view.setOnTouchListener(gestureTouch);
+				layout_controls.setOnTouchListener(gestureTouch);
 				
 				final float small = 150 * getResources().getDisplayMetrics().density;
 				final float medium = 200 * getResources().getDisplayMetrics().density;
@@ -695,6 +762,92 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 			releaseViews();
 	}
 
+	public void initFallback()
+	{
+		if (fallbackPlayer)
+		{
+			if (border == null)
+			{
+				border = new FloatingWidgetBorder(this);
+				border.setVisibility(View.INVISIBLE);
+			}
+			
+			if (fallbackView == null)
+			{
+				WebView webView = new WebView(this)
+				{
+					@Override
+					public boolean dispatchKeyEvent(KeyEvent event)
+					{
+						if (fallbackView != null && event.getAction() == KeyEvent.ACTION_UP && event.getKeyCode() == KeyEvent.KEYCODE_BACK)
+						{
+							if (fallbackView.getProgress() != 100)
+								fallbackView.stopLoading();
+
+							else if (fallbackView.canGoBack())
+								fallbackView.goBack();
+
+							else
+								return false;
+
+							return true;
+						}
+						return super.dispatchKeyEvent(event);
+					}
+				};
+				webView.getSettings().setJavaScriptEnabled(true);
+				webView.addJavascriptInterface(new Object()
+					{
+						
+					}, "JSInterface");
+				webView.setWebViewClient(new WebViewClient()
+					{
+						@Override
+						public boolean shouldOverrideUrlLoading(WebView view, String request)
+						{
+							view.loadUrl(request);
+							return true;
+						}
+						
+						@Override
+						public void onPageFinished(WebView view, String url)
+						{
+							view.evaluateJavascript("var player = document.getElementsByTagName('video')[0]; player.muted = false;", null);
+							buildNotification(R.drawable.pause, "Pause", ACTION_PAUSE);
+						}
+					});
+				webView.setWebChromeClient(new WebChromeClient()
+					{
+					});
+				webView.setOnLongClickListener(new View.OnLongClickListener()
+					{
+						@Override
+						public boolean onLongClick(View view)
+						{
+							border.show(paramsW, view, true);
+
+							return true;
+						}
+					});
+					
+				fallbackView = webView;
+				paramsW = new WindowManager.LayoutParams(
+					800,
+					800,
+					LayoutParams.TYPE_SYSTEM_ALERT,
+					LayoutParams.FLAG_NOT_TOUCH_MODAL,	
+					PixelFormat.TRANSLUCENT);
+				paramsW.gravity = Gravity.CENTER;
+				windowManager.addView(fallbackView, paramsW);
+			}
+			
+			if (fallbackView.getUrl() == null || !fallbackView.getUrl().equals(urls[playlistIndex]))
+				fallbackView.loadUrl(urls[playlistIndex]);
+		}
+		else
+			releaseFallback();
+	}
+
 	public void releaseMediaSession()
 	{
 		if (player != null)
@@ -707,6 +860,8 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 			player = null;
 			preparing = true;
 		}
+		fallbackPlayer = false;
+		releaseFallback();
 	}
 
 	public void initMediaSession()
@@ -723,6 +878,8 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 				if (nextSongTask != null)
 					nextSongTask.cancel(true);
 
+				fallbackPlayer = false;
+				
 				nextSongTask = new NextSongTask();
 				nextSongTask.execute(urls[playlistIndex]);
 				
@@ -732,41 +889,50 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 			return;
 		}
 			
-		if (player != null)
+		if (fallbackPlayer)
+		{
+			initFallback();
+			if (button_close != null)
+				button_close.callOnClick();
+		}
+		else
+		{
 			releaseMediaSession();
-		
-		try
-		{
-			player = new MediaPlayer();
-			player.setAudioStreamType(AudioManager.STREAM_MUSIC);
-			HashMap<String, String> headers = new HashMap<>();
-			headers.put("Origin", "https://www.youtube.com");
-			headers.put("Referer", urls[playlistIndex]);
-			player.setDataSource(this, Uri.parse(url), headers);
-			player.setOnPreparedListener(this);
-			player.setOnCompletionListener(this);
-			player.setOnErrorListener(this);
-			player.setOnVideoSizeChangedListener(this);
-			player.setOnSeekCompleteListener(this);
-			player.setWakeMode(this, PowerManager.PARTIAL_WAKE_LOCK);
-			player.setLooping(urls.length == 1 && repeat);
 
-			if (view != null && view_video.getHolder().getSurface() != null && view_video.getHolder().getSurface().isValid())
-				player.setDisplay(view_video.getHolder());
-				
-			if (view_visualizer != null)
-				initVisualizer();
+			try
+			{
+				player = new MediaPlayer();
+				player.setAudioStreamType(AudioManager.STREAM_MUSIC);
+				HashMap<String, String> headers = new HashMap<>();
+				headers.put("Origin", "https://www.youtube.com");
+				headers.put("Referer", "https://www.youtube.com/watch?v=" + YouTubeHelper.getId(Uri.parse(urls[playlistIndex])));
+				player.setDataSource(this, Uri.parse(url.trim()), headers);
+				player.setOnPreparedListener(this);
+				player.setOnCompletionListener(this);
+				player.setOnErrorListener(this);
+				player.setOnVideoSizeChangedListener(this);
+				player.setOnSeekCompleteListener(this);
+				player.setWakeMode(this, PowerManager.PARTIAL_WAKE_LOCK);
+				player.setLooping(urls.length == 1 && repeat);
+				player.setPlaybackParams(player.getPlaybackParams().setSpeed(PreferenceManager.getDefaultSharedPreferences(BGMService.this).getFloat("speed", 1)));
+
+				if (view != null && view_video.getHolder().getSurface() != null && view_video.getHolder().getSurface().isValid())
+					player.setDisplay(view_video.getHolder());
+
+				if (view_visualizer != null)
+					initVisualizer();
+			}
+			catch (Exception e)
+			{
+				System.out.println("Something is wrong with url: " + url);
+				e.printStackTrace();
+				url = "";
+				initMediaSession();
+
+				return;
+			}
 		}
-		catch (Exception e)
-		{
-			System.out.println("Something is wrong with url: " + url);
-			e.printStackTrace();
-			url = "";
-			initMediaSession();
-			
-			return;
-		}
-	
+		
 		if (session == null)
 		{
 			session = new MediaSession(this, SESSION);
@@ -944,7 +1110,8 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 		}
 			
 		buildNotification(R.drawable.load, "Load", ACTION_PLAY);
-		player.prepareAsync();
+		if (player != null)
+			player.prepareAsync();
 		preparing = true;
 		
 		if (view_progress != null)
@@ -980,7 +1147,8 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 		Notification.Builder builder = new Notification.Builder(this)
             .setSmallIcon(R.drawable.launcher)
             .setContentTitle(Html.fromHtml(titles[playlistIndex]))
-            .setContentText(Html.fromHtml(artists[playlistIndex]))
+            .setContentText(Html.fromHtml(artists[playlistIndex]) + (fallbackPlayer ? " (WebView)" : ""))
+			.setPriority(Notification.PRIORITY_HIGH)
 			.setContentIntent(PendingIntent.getService(this, 0, intent, 0))
             .setStyle(style)
 			.setShowWhen(false);
@@ -1032,6 +1200,9 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 
 		notificationManager.cancel(NOTIFICATION_ID + 1);
 		
+		if (controller == null)
+			return;
+		
 		String action = intent.getAction();
 
 		if (action.equalsIgnoreCase(ACTION_PLAY))
@@ -1080,7 +1251,6 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 				notificationManager.cancel(NOTIFICATION_ID + 3);
 			}
 		}
-			
 	}
 	
 	@Override
@@ -1099,6 +1269,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 		releaseMediaSession();
 		releaseViews();
 		releaseVisualizerViews();
+		releaseFallback();
 		
 		if (session != null)
 			session.release();
@@ -1120,34 +1291,41 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 	{
 		System.err.println("Media player error: " + p2 + " " + p3 + "\nURL=" + url);
 		buildNotification(R.drawable.alert, "Error", ACTION_PLAY);
+		boolean nico = NicoHelper.isValidUrl(Uri.parse(urls[playlistIndex]));
 		
 		if (wifiLock.isHeld())
 			wifiLock.release();
 			
 		time = player.getCurrentPosition();
 		releaseMediaSession();
-		url = "";
+		url = nico ? "" : tries == 2 ? "" : streams.get(((tries + 1) % 2) % streams.size()).url;
 		
-		Notification.Builder builder = new Notification.Builder(BGMService.this)
-			.setSmallIcon(R.drawable.alert)
-			.setContentText(Html.fromHtml(titles[playlistIndex]))
-			.setContentTitle("An error occured");
-
-		boolean nico = NicoHelper.isValidUrl(Uri.parse(urls[playlistIndex]));
+		//if (!wasPlaying)
+			//return true;
 		
-		if (!nico || tries >= 5)
+		if (!nico && tries >= 3 || tries >= 6)
+		{
+			Notification.Builder builder = new Notification.Builder(BGMService.this)
+				.setSmallIcon(R.drawable.alert)
+				.setContentText(Html.fromHtml(titles[playlistIndex]))
+				.setContentTitle("An error occured");
+		
 			notificationManager.notify(NOTIFICATION_ID + 1, builder.build());
-		
-		if (tries < (nico ? 5 : 2))
+			
+			if (!nico)
+				fallbackPlayer = true;
+		}
+			
+		if (tries < (nico ? 6 : 4))
 		{
 			tries++;
 			controller.getTransportControls().play();
-			
 		}
 		else
 		{
 			tries = 0;
 			controller.getTransportControls().skipToNext();
+			Toast.makeText(BGMService.this, "BGM skipped a song, because an error occured :/", Toast.LENGTH_SHORT).show();
 		}
 			
 		return true;
@@ -1163,6 +1341,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 	public void onPrepared(MediaPlayer p1)
 	{
 		preparing = false;
+		wasPlaying = true;
 		
 		controller.getTransportControls().play();
 		tries = 0;
@@ -1237,7 +1416,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 		if (!PreferenceManager.getDefaultSharedPreferences(this).getBoolean("audioFocus", true))
 			return;
 		
-		wasPlaying = false;
+		//wasPlaying = false;
 		
 		switch (focusChange)
 		{
@@ -1256,6 +1435,8 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 					float volume = PreferenceManager.getDefaultSharedPreferences(this).getFloat("volume", 1);
 					player.setVolume(volume, volume);
 				}
+				
+				wasPlaying = true;
 				
 				break;
 
@@ -1297,6 +1478,9 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 		else if (key.equals("video"))
 			initViews();
 			
+		else if (key.equals("speed") && !preparing && player != null && player.isPlaying())
+			player.setPlaybackParams(player.getPlaybackParams().setSpeed(PreferenceManager.getDefaultSharedPreferences(BGMService.this).getFloat("speed", 1)));
+		
 		else if (key.equals("visualizer"))
 			initVisualizerView();
 	}
@@ -1338,8 +1522,11 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 					artists[playlistIndex] = parsed.getQueryParameter("artist");
 					titles[playlistIndex] = parsed.getQueryParameter("title");
 					
+					fallbackPlayer = false;
+					
 					return result;
 				}
+				
 				String page = NetworkHelper.getPage(p1[0]);
 				
 				if (isCancelled())
@@ -1370,6 +1557,7 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 				if (index2 != -1)
 					titles[playlistIndex] = page.substring(index1 + 1, index2);
 				
+					/*
 				index0 = page.indexOf("quality=" + PreferenceManager.getDefaultSharedPreferences(BGMService.this).getString("quality", "high"));
 				index0 = index0 == -1 ? page.indexOf("quality=") : index0;
 				index1 = index0 == -1 ? -1 : page.indexOf("url=", index0);
@@ -1377,10 +1565,100 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 				index0 = index1 == -1 ? -1 : page.indexOf("\\u0026", index1);
 				index2 = index2 == -1 ? index0 : index0 == -1 ? index2 : Math.min(index0, index2);
 				
-				if (index2 != -1)
-					return URLDecoder.decode(page.substring(index1 + 4, index2)).toString();
+				String url1 = URLDecoder.decode(page.substring(index1 + 4, index2)).toString();
 				
-				return null;
+				if (index2 == -1)
+					return null;
+				
+				index0 = page.indexOf("quality_label=");
+				index0 = index0 == -1 ? page.indexOf("quality=medium") : index0;
+				index1 = index0 == -1 ? -1 : page.indexOf("url=", index0);
+				index2 = index1 == -1 ? -1 : page.indexOf(",", index1);
+				index0 = index1 == -1 ? -1 : page.indexOf("\\u0026", index1);
+				index2 = index2 == -1 ? index0 : index0 == -1 ? index2 : Math.min(index0, index2);
+
+				String url2 = URLDecoder.decode(page.substring(index1 + 4, index2)).toString();
+				
+				*/
+				
+				streams.clear();
+				String quality = PreferenceManager.getDefaultSharedPreferences(BGMService.this).getString("quality", "high");
+				if (quality.equals("Low"))
+					preferedQuality = 1;
+					
+				else if (quality.equals("Medium"))
+					preferedQuality = 2;
+					
+				else if (quality.equals("High"))
+					preferedQuality = 3;
+					
+				else 
+					preferedQuality = 0;
+					
+				index0 = page.indexOf("\"url_encoded_fmt_stream_map\"");
+				String map1 = URLDecoder.decode(page.substring(index0 + 30, page.indexOf("\"", index0 + 30)));
+				String[] map = map1.split(",");
+				
+				for (int i = 1; i <= map.length; ++i)
+				{
+					if (!map[i - 1].contains("url=") || i < map.length && !map[i].contains("url="))
+					{
+						streams.add(new Stream(map[i - 1] + "," + map[i]));
+						i++;
+					}
+					else
+						streams.add(new Stream(map[i - 1]));
+				}
+				
+				index0 = page.indexOf("\"adaptive_fmts\"");
+				String map2 = URLDecoder.decode(page.substring(index0 + 17, page.indexOf("\"", index0 + 17)));
+				
+				map = map2.split(",");
+
+				for (int i = 1; i <= map.length; ++i)
+				{
+					if (i < map.length && (!map[i - 1].contains("url=") || !map[i].contains("url=")))
+					{
+						streams.add(new Stream(map[i - 1] + "," + map[i]));
+						i++;
+					}
+					else
+						streams.add(new Stream(map[i - 1]));
+				}
+				
+				/*
+				OutputStreamWriter w = new OutputStreamWriter(new FileOutputStream(Environment.getExternalStorageDirectory() + "/bgm_debug.txt"));
+				w.write(p1[0] + " - " + titles[playlistIndex] + "\n\n" + "\n\nMaps:\n");
+				
+				w.write(map1.replace("\\u0026", "\n").replace(",", "\n\n"));
+				w.write("\n\n");
+				w.write(map2.replace("\\u0026", "\n").replace(",", "\n\n"));				w.write("\n\nFull:\n");
+				w.write(page);
+				w.flush();
+				w.close();
+				*/
+				
+				Collections.sort(streams);
+				
+				//for (Stream s : streams)
+					//System.out.println(s);
+				
+				NetworkHelper.getSync(true, new NetworkHelper.NetworkListener()
+				{
+					@Override
+					public void onServerRequestComplete(String response)
+					{
+						fallbackPlayer = false;
+					}
+
+					@Override
+					public void onErrorOccurred(String errorMessage)
+					{
+						fallbackPlayer = true;
+					}
+				}, streams.get(0).url);
+					
+				return streams.get(0).url;
 			}
 			catch (Exception e)
 			{
@@ -1409,6 +1687,84 @@ public class BGMService extends Service implements MediaPlayer.OnPreparedListene
 				if (controller != null)
 					controller.getTransportControls().skipToNext();
 			}
+		}
+	}
+	
+	int preferedQuality = 3;
+	
+	private class Stream implements Comparable<Stream>
+	{
+		@Override
+		public int compareTo(BGMService.Stream p1)
+		{
+			if (this.qualityInt == preferedQuality && p1.qualityInt != preferedQuality)
+				return -1;
+			else if (this.qualityInt != preferedQuality && p1.qualityInt == preferedQuality)
+				return 1;
+				
+			if (this.qualityInt != p1.qualityInt)
+				return (int) -Math.signum(this.qualityInt - p1.qualityInt);
+				
+			if (this.hasCodec && !p1.hasCodec)
+				return -1;
+			else if (!this.hasCodec && p1.hasCodec)
+				return 1;
+				
+			return 0;
+		}
+		
+		public String url;
+		private String quality = "?", type;
+		private boolean hasCodec;
+		private int qualityInt;
+		
+		public Stream(String s)
+		{
+			String[] args = s.split("\\\\u0026");
+			for (String arg : args)
+			{
+				if (arg.startsWith("url="))
+					this.url = arg.substring(4);
+
+				else if (arg.startsWith("type="))
+				{
+					this.type = arg.substring(5);
+					this.hasCodec = this.type.contains("codec");
+				}
+
+				else if (arg.startsWith("quality="))
+				{
+					this.quality = arg.substring(8);
+				}
+				else if (arg.startsWith("quality_label="))
+					this.quality = arg.substring(14);
+
+			}
+
+			if (this.url == null)
+			{
+				System.err.println("No url: " + s);
+				this.url = "";
+				this.qualityInt = -1;
+			}
+			
+			if (this.quality.equals("small") || this.quality.equals("144p") || this.quality.equals("240p"))
+				qualityInt = 1;
+
+			else if (this.quality.equals("medium") || this.quality.equals("360p") || this.quality.equals("480p"))
+				qualityInt = 2;
+
+			else if (this.quality.equals("hd720") || this.quality.equals("720p") || this.quality.equals("1080p"))
+				qualityInt = 3;
+				
+			else
+				qualityInt = 0;
+		}
+
+		@Override
+		public String toString()
+		{
+			return "Stream: " + quality + "; " + type + "; url=" + url;
 		}
 	}
 }

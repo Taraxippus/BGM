@@ -23,7 +23,7 @@ public class NetworkHelper
 	static
 	{
 		cookieManager = new CookieManager(null, CookiePolicy.ACCEPT_ALL);
-		CookieHandler.setDefault(cookieManager);
+		//CookieHandler.setDefault(cookieManager);
 	}
 	
 	public static String getPage(String url)
@@ -95,13 +95,13 @@ public class NetworkHelper
 				URL url = new URL(params[0]);
 				HttpURLConnection urlConnection = (HttpURLConnection) url.openConnection();
 				urlConnection.setRequestProperty("User-Agent", System.getProperty("http.agent").replace(" Mobile", "").replace("Android", "Linux"));
-				urlConnection.setReadTimeout(10000 /* milliseconds */);
-				urlConnection.setConnectTimeout(15000 /* milliseconds */);
+				urlConnection.setReadTimeout(20000);
+				urlConnection.setConnectTimeout(5000);
 				urlConnection.setRequestMethod(get ? "GET" : "POST");
 				urlConnection.setInstanceFollowRedirects(true);
 				
 				if (cookieManager.getCookieStore().getCookies().size() > 0)
-					urlConnection.setRequestProperty("Cookie", TextUtils.join(";",  cookieManager.getCookieStore().getCookies()));    
+					urlConnection.setRequestProperty("Cookie", TextUtils.join("; ",  cookieManager.getCookieStore().getCookies()).replace("\"", ""));    
 				
 				if (headers != null)
 					for (String s : headers.keySet())
@@ -129,11 +129,18 @@ public class NetworkHelper
 
 						Map<String, List<String>> headerFields = urlConnection.getHeaderFields();
 						List<String> cookiesHeader = headerFields.get("Set-Cookie");
-
+						List<HttpCookie> setCookies;
+						
 						if (cookiesHeader != null)
 							for (String cookie : cookiesHeader)
-								cookieManager.getCookieStore().add(null, HttpCookie.parse(cookie).get(0));
-							           
+							{
+								setCookies = HttpCookie.parse(cookie);
+								
+								for (HttpCookie cookie1 : setCookies)
+									cookieManager.getCookieStore().add(null, cookie1);
+								
+							}
+								
 						return sb.toString();
 					}
 					else
