@@ -68,6 +68,49 @@ public class NetworkHelper
 		new URLTask(listener, headerMap, get).execute(url);
 	}
 	
+	public static boolean isAvailable(boolean get, String url, String... headers)
+	{
+		try
+		{
+			HttpURLConnection urlConnection = (HttpURLConnection) new URL(url).openConnection();
+			urlConnection.setRequestProperty("User-Agent", System.getProperty("http.agent").replace(" Mobile", "").replace("Android", "Linux"));
+			urlConnection.setReadTimeout(20000);
+			urlConnection.setConnectTimeout(5000);
+			urlConnection.setRequestMethod(get ? "GET" : "POST");
+			urlConnection.setInstanceFollowRedirects(true);
+
+			if (cookieManager.getCookieStore().getCookies().size() > 0)
+				urlConnection.setRequestProperty("Cookie", TextUtils.join("; ",  cookieManager.getCookieStore().getCookies()).replace("\"", ""));    
+
+			for (int i = 0; i < headers.length - 1; i += 2)
+				urlConnection.setRequestProperty(headers[i], headers[i + 1]);
+
+			boolean flag;
+				
+			try
+			{
+				if (!get)
+					urlConnection.setDoInput(true);
+
+				flag = urlConnection.getResponseCode() == HttpURLConnection.HTTP_OK;	
+			}
+			catch (Exception e)
+			{
+				flag = false;
+			}
+			finally 
+			{
+				urlConnection.disconnect();
+			}
+			
+			return flag;
+		}
+		catch (Exception e)
+		{
+			return false;
+		}
+	}
+	
 	public static interface NetworkListener
 	{
 		void onServerRequestComplete(String response);

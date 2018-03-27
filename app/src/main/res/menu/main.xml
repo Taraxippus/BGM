@@ -27,6 +27,11 @@
         android:id="@+id/item_add"
         android:title="Add to queue"
 		android:icon="@drawable/add" />
+	
+	<item
+        android:id="@+id/item_shuffle_list"
+        android:title="Shuffle Playlist"
+		android:icon="@drawable/shuffle" />
     
 	<item
         android:id="@+id/item_preferences"

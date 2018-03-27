@@ -63,6 +63,7 @@ import org.apache.http.entity.HttpEntityWrapper;
 import org.apache.http.entity.StringEntity;
 import java.net.URLEncoder;
 import org.json.JSONException;
+import java.util.*;
 
 public class MainActivity extends Activity 
 {
@@ -265,6 +266,10 @@ public class MainActivity extends Activity
 											startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(!playlist ? (url.contains("?") ? url + "&" : url + "?") + "t=" + StringUtils.toUrlTime(seek.getProgress()) : url)));
 											return true;
 											
+										case R.id.item_shuffle_list:
+											shuffleList();
+											return true;
+											
 										case R.id.item_download:
 											if (mode == Mode.NICO)
 											{
@@ -324,44 +329,92 @@ public class MainActivity extends Activity
 												return true;
 											}
 											
-											final ArrayList<CharSequence> items = new ArrayList<>();
-											final ArrayList<CharSequence> downloadURLs = new ArrayList<>();
+											final ArrayList<BGMService.Stream> streams = new ArrayList<>();
 											
-											int index0, index1, index2, index3 = page.indexOf("url_encoded_fmt_stream_map");
-											
-											while (true)
-											{
-												index3 = index0 = page.indexOf("quality=", index3 + 1);
-												
-												if (index3 == -1)
-													break;
-												
-												try
-												{
-													index1 = page.indexOf("type=", index3);
-													index2 = page.indexOf(",", index3);
-													index0 = page.indexOf("\\u0026", index3);
-													index2 = index2 == -1 ? index0 : index0 == -1 ? index2 : Math.min(index0, index2);
-													
-													items.add(page.substring(index1 + 5, page.indexOf("%3B", index1)).replace("%2F", "/") + ", " + page.substring(index3 + 8, index2));
-													
-													index1 = page.indexOf("url=", index3);
-													index2 = index1 == -1 ? -1 : page.indexOf(",", index1);
-													index0 = index1 == -1 ? -1 : page.indexOf("\\u0026", index1);
-													index2 = index2 == -1 ? index0 : index0 == -1 ? index2 : Math.min(index0, index2);
+											String quality = PreferenceManager.getDefaultSharedPreferences(MainActivity.this).getString("quality", "high");
+											if (quality.equals("Low"))
+												BGMService.Stream.preferedQuality = 1;
 
-													downloadURLs.add(URLDecoder.decode(page.substring(index1 + 4, index2)));
+											else if (quality.equals("Medium"))
+												BGMService.Stream.preferedQuality = 2;
+
+											else if (quality.equals("High"))
+												BGMService.Stream.preferedQuality = 3;
+
+											else 
+												BGMService.Stream.preferedQuality = 0;
+
+											BGMService.Stream stream;
+											int index0 = page.indexOf("\"url_encoded_fmt_stream_map\"");
+											if (index0 != -1)
+											{
+												String map1 = URLDecoder.decode(page.substring(index0 + 30, page.indexOf("\"", index0 + 30)));
+
+												if (!map1.isEmpty())
+												{
+													String[] map = map1.split(",");
+
+													for (int i = 1; i <= map.length; ++i)
+													{
+														if (i < map.length && (!map[i - 1].contains("url=") || !map[i].contains("url=")))
+														{
+															stream = new BGMService.Stream(map[i - 1] + "," + map[i]);
+															if (stream.url != null)
+																streams.add(stream);
+															i++;
+														}
+														else
+														{
+															stream = new BGMService.Stream(map[i - 1]);
+															if (stream.url != null)
+																streams.add(stream);
+														}
+													}
 												}
-												catch (Exception e) {}
 											}
+
+											index0 = page.indexOf("\"adaptive_fmts\"");
+											if (index0 != -1)
+											{
+												String map2 = URLDecoder.decode(page.substring(index0 + 17, page.indexOf("\"", index0 + 17)));
+
+												if (!map2.isEmpty())
+
+												{
+													String[] map = map2.split(",");
+
+													for (int i = 1; i <= map.length; ++i)
+													{
+														if (i < map.length && (!map[i - 1].contains("url=") || !map[i].contains("url=")))
+														{
+															stream = new BGMService.Stream(map[i - 1] + "," + map[i]);
+															if (stream.url != null)
+																streams.add(stream);
+															i++;
+														}
+														else
+														{
+															stream = new BGMService.Stream(map[i - 1]);
+															if (stream.url != null)
+																streams.add(stream);
+														}
+													}
+												}
+											}
+											
+											Collections.sort(streams);
+											
+											CharSequence[] items = new CharSequence[streams.size()];
+											for (int i = 0; i < streams.size(); ++i)
+												items[i] = streams.get(i).getType();
 											
 											AlertDialog.Builder builder = new AlertDialog.Builder(MainActivity.this);
 											builder.setTitle("Choose quality");
-											builder.setItems(items.toArray(new CharSequence[items.size()]), new DialogInterface.OnClickListener()
+											builder.setItems(items, new DialogInterface.OnClickListener()
 												{
 													public void onClick(DialogInterface dialog, int which) 
 													{
-														DownloadManager.Request r = new DownloadManager.Request(Uri.parse(downloadURLs.get(which).toString()));
+														DownloadManager.Request r = new DownloadManager.Request(Uri.parse(streams.get(which).url));
 
 														r.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, Html.fromHtml(title).toString() + ".mp4");
 														r.allowScanningByMediaScanner();
@@ -392,12 +445,14 @@ public class MainActivity extends Activity
 						popup.getMenu().findItem(R.id.item_visualizer).setChecked(PreferenceManager.getDefaultSharedPreferences(MainActivity.this).getBoolean("visualizer", false));
 						if (mode == Mode.NICO)
 							popup.getMenu().findItem(R.id.item_view).setTitle("View on NicoNico");
+					
+						popup.getMenu().findItem(R.id.item_shuffle_list).setVisible(playlist);
 						
 						popup.show();
 					}
 			});
 			
-			final Drawable thumb =seek.getThumb();
+			final Drawable thumb = seek.getThumb();
 			final Drawable thumb_hidden = new ColorDrawable(Color.TRANSPARENT);
 			seek.setThumb(thumb_hidden);
 			
@@ -483,6 +538,24 @@ public class MainActivity extends Activity
 		
 		for (LoadImageTask task : loadImageTasks)
 			task.cancel(true);
+	}
+	
+	public void shuffleList()
+	{
+		int i1;
+		Random random = new Random();
+		for (int i = ids.size() - 1; i >= 1; i--)
+		{
+			i1 = random.nextInt(i + 1);
+			Collections.swap(ids, i, i1);
+			Collections.swap(urls, i, i1);
+			Collections.swap(titles, i, i1);
+			Collections.swap(artists, i, i1);
+		}
+		
+		playlistIndex = 0;
+		recycler.getAdapter().notifyDataSetChanged();
+		new ChangeImageTask().executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, ids.get(playlistIndex));
 	}
 	
 	public void startService(boolean shuffle, boolean repeat, boolean add)
